@@ -1,4 +1,12 @@
-pcaps/*
-__pycache__.py
+#venv
+.env/
+
+__pycache__/
+
+#pcaps folder
+pcaps/
+
+
+#empty for now but yeah 
 output.txt
 

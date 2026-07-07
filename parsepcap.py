@@ -8,9 +8,9 @@ from scapy.all import PcapReader, rdpcap, Ether, IP, TCP
 from listening import parse_packet
 
 def parse_pcap():
-    it1 = 0
+    it1             = 0
     skipped_counter = 0
-    linux_counter = 0
+    linux_counter   = 0
     windows_counter = 0
     unknown_counter = 0
 
