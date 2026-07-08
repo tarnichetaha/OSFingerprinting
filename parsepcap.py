@@ -16,7 +16,7 @@ def parse_pcap():
 
     unique_macs = set()
     
-    with PcapReader('capture.pcap') as packets, open('output.txt', 'w') as output_file:
+    with PcapReader('pcaps/capture.pcap') as packets, open('output.txt', 'w') as output_file:
         for packet in packets:
             it1 += 1
             if it1 >= 10000:
