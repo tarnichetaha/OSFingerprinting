@@ -1,25 +1,43 @@
 Progress in which i will be writing my code :
 
 
+
+
 Capture packets passively -- (scapy), but how? and maybe i should filter my own PC and phone's mac address starting here
 
+[x] = applied
+[ ] = not applied
 
-Fields that ill use : [
-	Initial packet size 
-	Initial TTL
-	Window Size
-	
-	options :
-		Max Segment Size (MSS)
-		Dont Fragment flag
-		sackOk flag
-		nop flag
-	
+[x] Aside from SYN-SYNACK TCP packets used for detecting OS_family by reading ttl / options field ordering,  which can be a little vague due to some OS having linux based kernels 
+
+[x] You can directly tell what kind of configuration the application is asking for by observing DHCP pakcets during IP assignment 
+DHCP Option 12: The client explicitly sends its hostname to the DHCP server during address assignment, which often gives away the machine name.
+
+[ ] Vendor Identity: The first three bytes of a MAC address are the Organizationally Unique Identifier (OUI).
+
+
+
+================================================================
+
+db : 
+observed_device : [
+	@MAC (id)	
+	hostname
+	net_config	
+	os
+	vendor_identity
+	evidence_id
+	last_seen
+    ev_hostname
+    ev_net_config      
+    ev_os
+    ev_vendor_identity
+]
 ]
 
+evidence: [ 
+	id_evidence               
+ 
+================================================================
 
-Parse headers, again just convert scapy results into vectors 
 
-Map parsed stuf to known @MAC
-
-Train

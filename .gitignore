@@ -2,11 +2,17 @@
 .venv/
 
 __pycache__/
-
-#pcaps folder
+src/__pycache__/
+src/config.py
 pcaps/
 
 
-#empty for now but yeah 
-output.txt
+#empty for now but yeah
+plan.md
+
+
+#db
+src/dbutils.py
+config.py
+OSfp_db.db
 

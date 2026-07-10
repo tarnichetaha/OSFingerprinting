@@ -4,4 +4,8 @@ version = "0.1.0"
 description = "Passive network sniffing/device-info mapping in local db"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "ja4plus>=0.6.0",
+    "requests>=2.34.2",
+    "scapy>=2.7.0",
+]
