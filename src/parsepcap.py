@@ -5,7 +5,6 @@
 """
 
 from scapy.all import PcapReader, Ether, IP, TCP, DHCP
-from fingerbank import get_device_info_from_fingerbank
 from dbutils import *
 from FPutils import *
 import models
