@@ -1,5 +1,5 @@
 import requests
-from config import URL, API_KEY
+from config import URL, API_KEY, DEBUG
 
 def get_device_info_from_fingerbank(op55, op60, mac):  
     headers = {
@@ -17,11 +17,13 @@ def get_device_info_from_fingerbank(op55, op60, mac):
         data = response.json()
         return data['device']['name'], data['score']
     except requests.RequestException as e:
-        print("*"*100)
-        print(f"Fingerbank request failed : {e}")
-        if e.response is not None:
-            print("Status:", e.response.status_code)
-            print("Body:", e.response.text)
+        if DEBUG :
+            print("✖"*100)
+            print(f"Fingerbank request failed : {e}")
+            if e.response is not None:
+                print("Status:", e.response.status_code)
+                print("Body:", e.response.text)
+            print("✖"*100)
         
     
     return None, None
@@ -74,28 +76,31 @@ def get_device_info_from_opt(dhcp_layer, device):
         #     device.ev_vendor_identity = f"Fingerbank API: Vendor={vendor}"
 
 def get_hostname_from_dhcp(dhcp_layer, device):
-    print(f"\nLooking for hostname in DHCP options for device with MAC: {device.mac_address}")
-    print(f"DHCP Options: {dhcp_layer.options}")
+    if DEBUG:
+        print(f"\nLooking for hostname in DHCP options for device with MAC: {device.mac_address}")
+        print(f"DHCP Options: {dhcp_layer.options}")
     hostname = None
     device.ev_hostname = "No evidence found in DHCP options"
     for option in dhcp_layer.options:
         if isinstance(option, tuple) and option[0] == 'hostname':
-            print(f"Found hostname in DHCP options: {option[1].decode('utf-8')}")
+            if DEBUG:
+                print(f"Found hostname in DHCP options: {option[1].decode('utf-8')}")
             hostname = option[1].decode('utf-8')
             break
     
     if hostname:
-        print(f"Setting hostname for device with MAC: {device.mac_address} to: {hostname}")
+        if DEBUG:
+            print(f"Setting hostname for device with MAC: {device.mac_address} to: {hostname}")
         device.hostname = hostname
         device.ev_hostname = f"DHCP Option_12: Hostname={hostname}"
 
 def get_os_from_packet(ttl, device):
     if ttl <= 64:
         device.os_ttl = 'Linux'
-        device.ev_os_ttl = 'TCP/IP Packet TTL<=64)'
+        device.ev_os_ttl = 'TCP/IP Packet 0<TTL<=64)'
     elif ttl <= 128:
         device.os_ttl = 'Windows'
-        device.ev_os_ttl = 'TCP/IP Packet TTL<=128)'
+        device.ev_os_ttl = 'TCP/IP Packet 64<TTL<=128)'
     else:
         device.os_ttl = 'Network Gear'
-        device.ev_os_ttl = 'TCP/IP Packet TTL>128)'    
+        device.ev_os_ttl = 'TCP/IP Packet 128<TTL<=255)'    
