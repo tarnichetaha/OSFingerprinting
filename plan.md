@@ -18,9 +18,9 @@ DHCP Option 12: The client explicitly sends its hostname to the DHCP server duri
 
 
 ================================================================
-
+table_name is dynamically set based on pcap filename
 db : 
-observed_device : [
+table_name : [
 	@MAC (id)	
 	hostname
 	net_config	
