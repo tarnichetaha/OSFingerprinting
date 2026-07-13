@@ -2,16 +2,14 @@ import requests
 from config import URL, API_KEY
 
 
-def get_device_info_from_fingerbank(op55):
-    if not op55:
-        return None, None
-    
+def get_device_info_from_fingerbank(op55, op60, mac):  
     headers = {
         'Authorization': f'Bearer {API_KEY}',
         'Content-Type': 'application/json'
     }
     payload = {
-        'dhcp_fingerprint': op55
+        'dhcp_fingerprint': op55,
+        'dhcp_vendor' : op60,
     }
 
     try :
@@ -26,4 +24,5 @@ def get_device_info_from_fingerbank(op55):
             print("Status:", e.response.status_code)
             print("Body:", e.response.text)
         
-        return None, None
+    
+    return None, None

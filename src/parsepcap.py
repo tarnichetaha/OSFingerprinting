@@ -6,8 +6,12 @@
 
 from scapy.all import PcapReader, Ether, IP, TCP, DHCP
 from dbutils import *
-import models
 from fingerbank import get_device_info_from_fingerbank
+import models
+import time
+
+PCAP_FILE = 'house_dump_1.pcap'
+PCAP_PATH = 'pcaps/' + PCAP_FILE
 
 def is_randomized_mac(mac_address):
     # Check if the MAC adress is randomized based on the second least significant bit of the first byte
@@ -15,20 +19,34 @@ def is_randomized_mac(mac_address):
     # if 7th bit of 1st byte = 1 : randomized MAC address
     return (first_byte & 0b00000010) != 0
 
-def get_device_info_from_opt55(dhcp_layer, device):
+def get_device_info_from_opt(dhcp_layer, device):
+    #pass op55, op60
+    op60 = None
     op55 = None
+    mac = None
+    if not(device.is_randomized_mac):
+        mac = device.mac_address
+
+    #op55 block
     for option in dhcp_layer.options:
         if isinstance(option, tuple) and option[0] == 'param_req_list':
             #format as "1,2,3,4" rather than [1, 2, 3 ,4] for fingerbank API
             op55 = ",".join(map(str, option[1]))
-
             break
     
-    if op55:
+    #op60 block
+    for option in dhcp_layer.options:
+        if isinstance(option, tuple) and option[0] == 'vendor_class_id':
+            op55 = str(option[1])
+            break
+        
+    if op55 or op60 or mac:
         #API 
         print(f"Attempting API request for dhcp_fingerprint : {op55}")
-        os, score = get_device_info_from_fingerbank(op55)
-        if not(os or len(os) <= 0):
+
+        os, score = get_device_info_from_fingerbank(op55, op60, mac)
+
+        if not(os):
             return
         
         device.os_opt55 = os
@@ -73,11 +91,12 @@ def parse_pcap():
     skipped_counter = 0
 
     
-    with PcapReader('pcaps/large_online_wednesday.pcap') as packets, open('output.txt', 'w') as output_file:
+    start_time = time.perf_counter()
+    with PcapReader(PCAP_PATH) as packets:
         for packet in packets:
             changes = False
             it1 += 1
-            if it1 >= 2000:
+            if it1 >= 20000:
                 break
 
             
@@ -85,22 +104,22 @@ def parse_pcap():
                 continue
             
             device_mac = packet[Ether].src
-            # target_mac = packet[Ether].dst
+            # target_mac = packet[Ether].dst            
 
-            device = models.Device 
-
-            device = get_device_by_mac(device_mac)
-
-            # Check if mac addr is randomized
+            
+            # Check DEVICE exists in db
+            device = models.Device
+            device = get_device_by_mac(PCAP_FILE, device_mac)
             if(device == None):
+                # check if its a randomized or universal mac
                 device = Device(mac_address=device_mac)
-                device.is_randomized_mac = is_randomized_mac(device_mac)
+                device.is_randomized_mac = is_randomized_mac(device_mac)         
+                
                 changes = True
 
             if(packet.haslayer(TCP)):
                 if packet[TCP].flags != 'S' and packet[TCP].flags != 'SA':          
                     # find TTL
-
                     if(device.os_ttl == None):
                         get_os_from_packet(packet[IP].ttl, device)
                         changes = True
@@ -113,16 +132,19 @@ def parse_pcap():
                     changes = True
 
                 if(device.os_opt55 == None or device.vendor_identity == None):
-                    get_device_info_from_opt55(packet[DHCP], device)
+                    get_device_info_from_opt(packet[DHCP], device)
                     changes = True
                 
             if(changes):
-                add_device_or_update(device)
+                add_device_or_update(PCAP_FILE, device)
 
             
             
-    
+    end_time = time.perf_counter()
+    print('*'*150)
     print(f"Finished parsing packets. {it1 - skipped_counter} packets processed out of {it1}")
+    elapsed_time = end_time - start_time
+    print(f"Executed in: {elapsed_time:.4f} seconds")
             
     
 def main():

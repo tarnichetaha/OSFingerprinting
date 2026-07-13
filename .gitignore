@@ -14,5 +14,4 @@ plan.md
 #db
 src/dbutils.py
 config.py
-OSfp_db.db
-
+OSFP_DB_*
