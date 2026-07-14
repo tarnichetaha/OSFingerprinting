@@ -17,7 +17,7 @@ import models
 import time
 import re
 
-PCAP_FILE = 'test1.pcap'
+PCAP_FILE = 'mini_signals.pcap'
 PCAP_PATH = 'pcaps/' + PCAP_FILE
 
 

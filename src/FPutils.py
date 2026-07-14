@@ -1,6 +1,9 @@
 import requests
 from config import URL, API_KEY, DEBUG
 
+"""
+    functions that i've used to analyse specific packet layers/ layer items to determine device info
+"""
 def get_device_info_from_fingerbank(op55, op60, mac):  
     headers = {
         'Authorization': f'Bearer {API_KEY}',
@@ -9,6 +12,7 @@ def get_device_info_from_fingerbank(op55, op60, mac):
     payload = {
         'dhcp_fingerprint': op55,
         'dhcp_vendor' : op60,
+        'mac' : mac
     }
 
     try :
@@ -99,7 +103,7 @@ def get_hostname_from_dhcp(dhcp_layer, device):
         if DEBUG:
             print(f"Setting hostname for device with MAC: {device.mac_address} to: {hostname}")
         device.hostname = hostname
-        device.ev_hostname = f"DHCP Option_12: Hostname={hostname}"
+        device.ev_hostname = f"DHCP_op12:hostname={hostname}"
 
 def get_os_from_ttl(ttl, device):
     if ttl <= 64:
