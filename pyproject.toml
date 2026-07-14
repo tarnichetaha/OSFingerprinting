@@ -1,7 +1,7 @@
 [project]
 name = "osfingerprinting"
 version = "0.1.0"
-description = "Passive network sniffing/device-info mapping in local db"
+description = "Passive network sniffing into per-device info mapping in local db"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

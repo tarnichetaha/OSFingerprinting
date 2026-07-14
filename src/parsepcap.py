@@ -17,7 +17,7 @@ import models
 import time
 import re
 
-PCAP_FILE = 'large_online_wednesday.pcap'
+PCAP_FILE = 'test1.pcap'
 PCAP_PATH = 'pcaps/' + PCAP_FILE
 
 
@@ -34,7 +34,7 @@ def parse_pcap():
         for packet in packets:
             changes = False
             it1 += 1
-            if it1 >= 20000:
+            if it1 >= 200000:
                 break
        
             if not(packet.haslayer(Ether) and packet.haslayer(IP)):
@@ -59,8 +59,8 @@ def parse_pcap():
             if(packet.haslayer(TCP)):
                 if packet[TCP].flags != 'S' and packet[TCP].flags != 'SA':          
                     #predict device based on TTL if None yet or found a higher recorded TTL)
-                    if(device.os_ttl == None or  device.ev_os_ttl < packet[IP].ttl):
-                        get_os_from_packet(packet[IP].ttl, device)
+                    if(device.os_ttl == None or  int(device.ev_os_ttl) < packet[IP].ttl):
+                        get_os_from_ttl(packet[IP].ttl, device)
                         changes = True
             
             if(packet.haslayer(DHCP)):      

@@ -10,14 +10,14 @@ def get_connection(table):
                 f"CREATE TABLE IF NOT EXISTS [{table}] (" \
                 "mac_address TEXT PRIMARY KEY, " \
                 "is_randomized_mac BOOLEAN DEFAULT FALSE, " \
-                "hostname TEXT NULLABLE, " \
-                "net_config TEXT NULLABLE, " \
-                "os TEXT NULLABLE, " \
-                "vendor_identity TEXT NULLABLE, " \
-                "ev_hostname TEXT NULLABLE,"\
-                "ev_net_config TEXT NULLABLE,"\
-                "ev_os TEXT NULLABLE,"\
-                "ev_vendor_identity TEXT NULLABLE)"\
+                "hostname TEXT DEFAULT 'Not Recorded', " \
+                "net_config TEXT DEFAULT 'Not Recorded' , " \
+                "os TEXT DEFAULT 'Not Recorded', " \
+                "vendor_identity TEXT DEFAULT 'Not Recorded', " \
+                "ev_hostname TEXT DEFAULT 'Not Recorded',"\
+                "ev_net_config TEXT DEFAULT 'Not Recorded',"\
+                "ev_os NUMBER DEFAULT -1,"\
+                "ev_vendor_identity TEXT DEFAULT 'Not Recorded')"\
                 #"last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " \
             )
             

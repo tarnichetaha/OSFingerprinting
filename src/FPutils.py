@@ -16,9 +16,11 @@ def get_device_info_from_fingerbank(op55, op60, mac):
         response.raise_for_status()
         data = response.json()
         if DEBUG:
-            with open('logs/api_reponses.txt') as file:
+            with open('logs/api_reponses.log', 'a') as file:
                 file.write('='*150)
-                file.writelines(data)
+                for k, v in data.items():
+                    file.write('\n')
+                    file.write(f'{k} : {v}')
 
         return data['device']['name'], data['score']
     except requests.RequestException as e:
@@ -37,7 +39,7 @@ def get_device_info_from_fingerbank(op55, op60, mac):
 def is_randomized_mac(mac_address):
     # Check if the MAC adress is randomized based on the second least significant bit of the first byte
     first_byte = int(mac_address.split(':')[0], 16)
-    # if 7th bit of 1st byte = 1 : randomized MAC address
+    # if 7th bit of 1st byte (left to right) = 1  : randomized MAC address
     return (first_byte & 0b00000010) != 0
 
 def get_device_info_from_dhcp_opt(dhcp_layer, device):
@@ -99,7 +101,7 @@ def get_hostname_from_dhcp(dhcp_layer, device):
         device.hostname = hostname
         device.ev_hostname = f"DHCP Option_12: Hostname={hostname}"
 
-def get_os_from_packet(ttl, device):
+def get_os_from_ttl(ttl, device):
     if ttl <= 64:
         device.os_ttl = 'Linux'
         device.ev_os_ttl = ttl
