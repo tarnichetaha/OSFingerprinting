@@ -15,6 +15,11 @@ def get_device_info_from_fingerbank(op55, op60, mac):
         response = requests.post(URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
+        if DEBUG:
+            with open('logs/api_reponses.txt') as file:
+                file.write('='*150)
+                file.writelines(data)
+
         return data['device']['name'], data['score']
     except requests.RequestException as e:
         if DEBUG :
@@ -35,7 +40,7 @@ def is_randomized_mac(mac_address):
     # if 7th bit of 1st byte = 1 : randomized MAC address
     return (first_byte & 0b00000010) != 0
 
-def get_device_info_from_opt(dhcp_layer, device):
+def get_device_info_from_dhcp_opt(dhcp_layer, device):
     #pass op55, op60
     op60 = None
     op55 = None
@@ -97,10 +102,10 @@ def get_hostname_from_dhcp(dhcp_layer, device):
 def get_os_from_packet(ttl, device):
     if ttl <= 64:
         device.os_ttl = 'Linux'
-        device.ev_os_ttl = 'TCP/IP Packet 0<TTL<=64)'
+        device.ev_os_ttl = ttl
     elif ttl <= 128:
         device.os_ttl = 'Windows'
-        device.ev_os_ttl = 'TCP/IP Packet 64<TTL<=128)'
+        device.ev_os_ttl = ttl
     else:
         device.os_ttl = 'Network Gear'
-        device.ev_os_ttl = 'TCP/IP Packet 128<TTL<=255)'    
+        device.ev_os_ttl = ttl   
