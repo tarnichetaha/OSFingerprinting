@@ -5,7 +5,6 @@ description = "Passive network sniffing into per-device info mapping in local db
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "ja4plus>=0.6.0",
     "requests>=2.34.2",
     "scapy>=2.7.0",
 ]

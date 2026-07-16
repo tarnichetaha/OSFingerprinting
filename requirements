@@ -3,7 +3,6 @@ cffi==2.1.0
 charset-normalizer==3.4.9
 cryptography==49.0.0
 idna==3.18
-ja4plus==0.6.0
 pycparser==3.0
 requests==2.34.2
 scapy==2.7.0
