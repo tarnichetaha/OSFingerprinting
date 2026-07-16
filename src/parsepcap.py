@@ -1,5 +1,3 @@
-
-
 """ 
     Parse PCAP files for OS fingerprinting
 
@@ -10,14 +8,14 @@
         - updates database on batches of 100 during the loop, or leftovers after
 """
 
-from scapy.all import PcapReader, Ether, IP, TCP, DHCP
+from scapy.all import PcapReader, Ether, IP, TCP, DHCP, Raw
 from dbutils import *
 from FPutils import *
 import models
 import time
 import re
 
-PCAP_FILE = 'mini_signals.pcap'
+PCAP_FILE = 'house_dump-1.pcap'
 PCAP_PATH = 'pcaps/' + PCAP_FILE
 
 
@@ -41,7 +39,6 @@ def parse_pcap():
                 continue
             
             device_mac = packet[Ether].src          
-            device = models.Device
             
             # Check DEVICE exists in cache
             if device_mac not in cached_devices:
@@ -58,19 +55,26 @@ def parse_pcap():
 
             if(packet.haslayer(TCP)):
                 if packet[TCP].flags != 'S' and packet[TCP].flags != 'SA':          
-                    #predict device based on TTL if None yet or found a higher recorded TTL)
-                    if(device.os_ttl == None or  int(device.ev_os_ttl) < packet[IP].ttl):
+                    #predict device based on TTL
+                    #track the highest TTL seen (closest to original hop count)
+                    if(device.os_ttl is None or int(device.ev_os_ttl) < packet[IP].ttl):
                         get_os_from_ttl(packet[IP].ttl, device)
+                        changes = True
+
+                # HTTP User-Agent parsing (non-SYN packets with payload)
+                if packet.haslayer(Raw):
+                    raw_payload = packet[Raw].load
+                    if parse_http_user_agent(raw_payload, device):
                         changes = True
             
             if(packet.haslayer(DHCP)):      
                 #fetch hostname (sometimes doesnt exist)
-                if(device.hostname == None):
+                if(device.hostname is None):
                     get_hostname_from_dhcp(packet[DHCP], device)
                     changes = True
                 
                 # will call api request
-                if(device.os_opt55 == None or device.vendor_identity == None):
+                if(device.os_opt55 is None or device.vendor_identity is None):
                     get_device_info_from_dhcp_opt(packet[DHCP], device)
                     changes = True
                 
@@ -78,17 +82,14 @@ def parse_pcap():
                 #update db when X amount of  updates are pending
                 batch_db_update.append(device)
                 if len(batch_db_update) >= BATCH_SIZE:
-                    for _device in batch_db_update:
-                        add_device_or_update(PCAP_FILE, _device)
+                    add_device_batch(PCAP_FILE, batch_db_update)
                     batch_db_update.clear()
         
         # update leftovers 
         if len(batch_db_update) > 0:
-            for _device in batch_db_update:
-                add_device_or_update(PCAP_FILE, _device)
+            add_device_batch(PCAP_FILE, batch_db_update)
             batch_db_update.clear()
 
-            
             
     end_time = time.perf_counter()
     print('*'*150)

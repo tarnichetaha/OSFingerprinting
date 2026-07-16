@@ -17,7 +17,9 @@ def get_connection(table):
                 "ev_hostname TEXT DEFAULT 'Not Recorded',"\
                 "ev_net_config TEXT DEFAULT 'Not Recorded',"\
                 "ev_os NUMBER DEFAULT -1,"\
-                "ev_vendor_identity TEXT DEFAULT 'Not Recorded')"\
+                "ev_vendor_identity TEXT DEFAULT 'Not Recorded',"\
+                "http_user_agent TEXT DEFAULT 'Not Recorded',"\
+                "ev_http_user_agent TEXT DEFAULT 'Not Recorded')"\
                 #"last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " \
             )
             
@@ -50,9 +52,27 @@ def execute_query(conn, query, params=None):
 
 def add_device_or_update(table, Device):
     conn = get_connection(table)
-    query = f"INSERT OR REPLACE INTO [{table}] (mac_address, is_randomized_mac, hostname, net_config, os, vendor_identity, ev_hostname, ev_net_config, ev_os, ev_vendor_identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    params = (Device.mac_address, Device.is_randomized_mac, Device.hostname, Device.os_opt55, Device.os_ttl, Device.vendor_identity, Device.ev_hostname, Device.ev_os_opt55, Device.ev_os_ttl, Device.ev_vendor_identity)
+    query = f"INSERT OR REPLACE INTO [{table}] (mac_address, is_randomized_mac, hostname, net_config, os, vendor_identity, ev_hostname, ev_net_config, ev_os, ev_vendor_identity, http_user_agent, ev_http_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    params = (Device.mac_address, Device.is_randomized_mac, Device.hostname, Device.os_opt55, Device.os_ttl, Device.vendor_identity, Device.ev_hostname, Device.ev_os_opt55, Device.ev_os_ttl, Device.ev_vendor_identity, Device.http_user_agent, Device.ev_http_user_agent)
     execute_query(conn, query, params)
+    close_connection(conn)
+
+
+def add_device_batch(table, devices):
+    """Insert/update multiple devices in a single transaction."""
+    if not devices:
+        return
+    conn = get_connection(table)
+    query = f"INSERT OR REPLACE INTO [{table}] (mac_address, is_randomized_mac, hostname, net_config, os, vendor_identity, ev_hostname, ev_net_config, ev_os, ev_vendor_identity, http_user_agent, ev_http_user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    params_list = [
+        (d.mac_address, d.is_randomized_mac, d.hostname, d.os_opt55, d.os_ttl,
+         d.vendor_identity, d.ev_hostname, d.ev_os_opt55, d.ev_os_ttl,
+         d.ev_vendor_identity, d.http_user_agent, d.ev_http_user_agent)
+        for d in devices
+    ]
+    cur = conn.cursor()
+    cur.executemany(query, params_list)
+    conn.commit()
     close_connection(conn)
 
 def get_all_devices(table):
