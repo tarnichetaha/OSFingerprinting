@@ -1,18 +1,18 @@
+import argparse
 from scapy.all import sniff, Ether, IP, TCP
+from config import LIVE_IFACE
 
 
-recognized_mac = {
-    'b8:8a:60:7f:a6:16' : 'Linux Mint',     #my linux laptop 
-    '24:11:53:0d:de:5e' : 'Samsung A34'     #my samsung A34's own mac address
-}
-
-interface = 'wlp2s0'
-def packet_callback():
+def packet_callback(packet):
     pass
 
 def main():
+    parser = argparse.ArgumentParser(description="Simple TCP sniff helper")
+    parser.add_argument("--iface", default=LIVE_IFACE, help="Interface to sniff")
+    args = parser.parse_args()
+
     print("Starting packet sniffing...")
-    sniff(iface=interface , prn=packet_callback, filter="tcp", store=0, timeout=4)
+    sniff(iface=args.iface, prn=packet_callback, filter="tcp", store=0, timeout=4)
     print("Packet sniffing finished or timed out.")
 
 if __name__ == "__main__": 

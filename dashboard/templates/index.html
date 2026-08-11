@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Placeholder</title>
+<style>
+  :root {
+    --blue: #4a90d9;
+    --blue-light: #eaf3fc;
+    --border: #ccc;
+    --text-dim: #666;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #000000;
+    font-size: 14px;
+  }
+
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+  }
+
+  header .stats {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+
+  nav {
+    display: flex;
+    gap: 4px;
+    padding: 8px 24px 0 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  nav button {
+    background: none;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: 4px 4px 0 0;
+    color: #000;
+  }
+
+  nav button.active {
+    background: var(--blue-light);
+    border-color: var(--blue);
+    font-weight: bold;
+  }
+
+  main {
+    padding: 20px 24px;
+  }
+
+  .panel {
+    display: none;
+  }
+
+  .panel.active {
+    display: block;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+  }
+
+  th {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+
+  tr.device-row {
+    cursor: pointer;
+  }
+
+  tr.device-row:hover {
+    background: var(--blue-light);
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+  }
+
+  button.action {
+    background: var(--blue-light);
+    border: 1px solid var(--blue);
+    color: #000;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  button.action:hover {
+    background: var(--blue);
+    color: #fff;
+  }
+
+  button.action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  /* detail overlay */
+  #detail-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.25);
+  }
+
+  #detail-overlay.active {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  #detail-panel {
+    width: 480px;
+    max-width: 90%;
+    background: #fff;
+    height: 100%;
+    overflow-y: auto;
+    border-left: 1px solid var(--border);
+    padding: 20px;
+  }
+
+  #detail-panel h2 {
+    font-size: 16px;
+    margin-top: 0;
+  }
+
+  .close-btn {
+    float: right;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+  }
+
+  .field-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+  }
+
+  .field-row .label {
+    color: var(--text-dim);
+  }
+
+  .evidence-item {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .evidence-item .signal-type {
+    font-weight: bold;
+    text-transform: uppercase;
+    color: var(--blue);
+  }
+
+  .evidence-item .raw {
+    font-family: monospace;
+    white-space: pre-wrap;
+    background: #fafafa;
+    padding: 6px;
+    margin-top: 4px;
+    border-radius: 3px;
+  }
+
+  .activity-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+  }
+
+  .activity-item .mac {
+    font-family: monospace;
+    color: var(--text-dim);
+  }
+
+  .empty-msg {
+    color: var(--text-dim);
+    padding: 20px 0;
+  }
+
+  .not-recorded {
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Device Fingerprinting Dashboard</h1>
+  <span class="stats" id="header-stats"></span>
+</header>
+
+<nav>
+  <button class="tab-btn active" data-panel="devices">Devices</button>
+  <button class="tab-btn" data-panel="low-confidence">Needs More Info</button>
+  <button class="tab-btn" data-panel="activity">Activity</button>
+</nav>
+
+<main>
+
+  <div id="devices" class="panel active">
+    <table>
+      <thead>
+        <tr>
+          <th>MAC</th>
+          <th>Vendor</th>
+          <th>Hostname</th>
+          <th>OS Family</th>
+          <th>Device Type</th>
+          <th>Manufacturer</th>
+          <th>Model</th>
+          <th>Confidence</th>
+          <th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody id="devices-body"></tbody>
+    </table>
+    <div id="devices-empty" class="empty-msg" style="display:none;">No devices observed yet.</div>
+  </div>
+
+  <div id="low-confidence" class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>MAC</th>
+          <th>Vendor</th>
+          <th>OS Family</th>
+          <th>Device Type</th>
+          <th>Weak Fields</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="low-confidence-body"></tbody>
+    </table>
+    <div id="low-confidence-empty" class="empty-msg" style="display:none;">Nothing needs attention right now.</div>
+  </div>
+
+  <div id="activity" class="panel">
+    <div id="activity-body"></div>
+    <div id="activity-empty" class="empty-msg" style="display:none;">No recent activity.</div>
+  </div>
+
+</main>
+
+<div id="detail-overlay">
+  <div id="detail-panel">
+    <button class="close-btn" onclick="closeDetail()">Close</button>
+    <div id="detail-content"></div>
+  </div>
+</div>
+
+<script>
+const LOW_CONF_THRESHOLD = 0.6;
+
+// ---- tab switching ----
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.panel).classList.add("active");
+  });
+});
+
+function fmtConfidence(v) {
+  if (v === null || v === undefined || v === 0) return notRecordedHtml();
+  return (v * 100).toFixed(0) + "%";
+}
+
+function fmtDate(v) {
+  if (!v) return notRecordedHtml();
+  const d = new Date(v);
+  if (isNaN(d)) return v;
+  return d.toLocaleString();
+}
+
+function notRecordedHtml() {
+  return '<span class="not-recorded">Not recorded</span>';
+}
+
+function isMissing(v) {
+  return v === null || v === undefined || v === "";
+}
+
+function displayOrNotRecorded(v) {
+  return isMissing(v) ? notRecordedHtml() : v;
+}
+
+function fmtWithConfidence(value, confidence) {
+  return `${displayOrNotRecorded(value)} (${fmtConfidence(confidence)})`;
+}
+
+function overallConfidence(d) {
+  const vals = [d.confidence_os_family, d.confidence_os_version, d.confidence_device_type,
+                d.confidence_manufacturer, d.confidence_model].filter(v => v > 0);
+  if (!vals.length) return 0;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function weakFields(d) {
+  const map = {
+    "OS Family": d.confidence_os_family,
+    "OS Version": d.confidence_os_version,
+    "Device Type": d.confidence_device_type,
+    "Manufacturer": d.confidence_manufacturer,
+    "Model": d.confidence_model,
+  };
+  return Object.entries(map)
+    .filter(([k, v]) => v > 0 && v < LOW_CONF_THRESHOLD)
+    .map(([k]) => k);
+}
+
+// ---- load devices ----
+async function loadDevices() {
+  const res = await fetch("/api/devices");
+  const devices = await res.json();
+
+  document.getElementById("header-stats").textContent =
+    `${devices.length} device${devices.length === 1 ? "" : "s"} observed`;
+
+  const body = document.getElementById("devices-body");
+  body.innerHTML = "";
+  document.getElementById("devices-empty").style.display = devices.length ? "none" : "block";
+
+  devices.forEach(d => {
+    const conf = overallConfidence(d);
+    const tr = document.createElement("tr");
+    tr.className = "device-row";
+    tr.onclick = () => openDetail(d.mac_address);
+    tr.innerHTML = `
+      <td>${displayOrNotRecorded(d.mac_address)}</td>
+      <td>${displayOrNotRecorded(d.vendor_name)}</td>
+      <td>${displayOrNotRecorded(d.hostname)}</td>
+      <td>${displayOrNotRecorded(d.inferred_os_family)}</td>
+      <td>${displayOrNotRecorded(d.inferred_device_type)}</td>
+      <td>${displayOrNotRecorded(d.inferred_manufacturer)}</td>
+      <td>${displayOrNotRecorded(d.inferred_model)}</td>
+      <td><span class="badge">${fmtConfidence(conf)}</span></td>
+      <td>${fmtDate(d.last_seen)}</td>
+    `;
+    body.appendChild(tr);
+  });
+
+  renderLowConfidence(devices);
+}
+
+function renderLowConfidence(devices) {
+  const weak = devices.filter(d => d.low_confidence);
+  const body = document.getElementById("low-confidence-body");
+  body.innerHTML = "";
+  document.getElementById("low-confidence-empty").style.display = weak.length ? "none" : "block";
+
+  weak.forEach(d => {
+    const weakFieldList = weakFields(d);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${displayOrNotRecorded(d.mac_address)}</td>
+      <td>${displayOrNotRecorded(d.vendor_name)}</td>
+      <td>${displayOrNotRecorded(d.inferred_os_family)}</td>
+      <td>${displayOrNotRecorded(d.inferred_device_type)}</td>
+      <td>${weakFieldList.length ? weakFieldList.join(", ") : notRecordedHtml()}</td>
+      <td><button class="action" onclick="probeDevice('${d.mac_address}', this)">Probe</button></td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+async function probeDevice(mac, btn) {
+  btn.disabled = true;
+  btn.textContent = "Probing...";
+  try {
+    const res = await fetch(`/api/probe/${mac}`, { method: "POST" });
+    if (!res.ok) throw new Error("probe failed");
+    await loadDevices();
+  } catch (e) {
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Probe"; }, 2000);
+    return;
+  }
+}
+
+// ---- device detail ----
+async function openDetail(mac) {
+  const res = await fetch(`/api/device/${mac}`);
+  if (!res.ok) return;
+  const d = await res.json();
+
+  const fields = [
+    ["MAC Address", d.mac_address],
+    ["Vendor (OUI)", d.vendor_name],
+    ["Hostname", d.hostname],
+    ["Current IP", d.ip_address_current],
+    ["First Seen", fmtDate(d.first_seen)],
+    ["Last Seen", fmtDate(d.last_seen)],
+    ["Source", d.source],
+    ["OS Family", fmtWithConfidence(d.inferred_os_family, d.confidence_os_family)],
+    ["OS Version", fmtWithConfidence(d.inferred_os_version, d.confidence_os_version)],
+    ["Device Type", fmtWithConfidence(d.inferred_device_type, d.confidence_device_type)],
+    ["Manufacturer", fmtWithConfidence(d.inferred_manufacturer, d.confidence_manufacturer)],
+    ["Model", fmtWithConfidence(d.inferred_model, d.confidence_model)],
+  ];
+
+  let html = `<h2>${d.mac_address}</h2>`;
+  fields.forEach(([label, val]) => {
+    html += `<div class="field-row"><span class="label">${label}</span><span>${displayOrNotRecorded(val)}</span></div>`;
+  });
+
+  if (d.low_confidence) {
+    html += `<div style="margin-top:14px;">
+      <button class="action" onclick="probeDevice('${d.mac_address}', this)">Run Active Probe</button>
+    </div>`;
+  }
+
+  html += `<h3 style="margin-top:20px; font-size:14px;">Evidence (${(d.evidence || []).length})</h3>`;
+  if (!d.evidence || !d.evidence.length) {
+    html += `<div class="empty-msg">No evidence recorded.</div>`;
+  } else {
+    d.evidence.slice().reverse().forEach(ev => {
+      html += `
+        <div class="evidence-item">
+          <span class="signal-type">${ev.signal_type}</span>
+          <span style="float:right; color:#666;">${fmtDate(ev.observed_at)}</span>
+          <div>Matched: ${displayOrNotRecorded(ev.matched_signature)} ${ev.match_confidence != null ? "(" + fmtConfidence(ev.match_confidence) + ")" : ""}</div>
+          <div class="raw">${JSON.stringify(ev.raw_data, null, 2)}</div>
+        </div>
+      `;
+    });
+  }
+
+  document.getElementById("detail-content").innerHTML = html;
+  document.getElementById("detail-overlay").classList.add("active");
+}
+
+function closeDetail() {
+  document.getElementById("detail-overlay").classList.remove("active");
+}
+
+document.getElementById("detail-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "detail-overlay") closeDetail();
+});
+
+// ---- activity feed ----
+async function loadActivity() {
+  const res = await fetch("/api/activity");
+  const items = await res.json();
+  const body = document.getElementById("activity-body");
+  body.innerHTML = "";
+  document.getElementById("activity-empty").style.display = items.length ? "none" : "block";
+
+  items.slice().reverse().forEach(ev => {
+    const div = document.createElement("div");
+    div.className = "activity-item";
+    div.innerHTML = `
+      <span class="mac">${ev.mac_address}</span> —
+      <strong>${ev.signal_type}</strong>
+      ${ev.matched_signature ? "→ " + ev.matched_signature : "→ " + notRecordedHtml()}
+      <span style="float:right; color:#666;">${fmtDate(ev.observed_at)}</span>
+    `;
+    body.appendChild(div);
+  });
+}
+
+// ---- polling ----
+function refreshAll() {
+  loadDevices();
+  loadActivity();
+}
+
+refreshAll();
+setInterval(refreshAll, 5000);
+</script>
+
+</body>
+</html>

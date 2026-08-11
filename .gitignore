@@ -14,6 +14,15 @@ build/
 dist/
 *.egg-info/
 
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
 # IDE and editor files
 .vscode/
 .idea/
@@ -28,12 +37,24 @@ Thumbs.db
 .env.local
 config.local.py
 
-# Generated files
-OSFP_db.db
+# Generated runtime files
 output.txt
 *.log
 logs/
-pcaps/
+*.pid
+*.tmp
+*.bak
+*.sqlite-journal
+*.db-journal
 
-# Project planning (local use)
-plan.md
+# Keep the main SQLite database in version control
+!OSFP_db.db
+
+# Notebook artifacts
+.ipynb_checkpoints/
+
+
+#datasets
+*.csv
+*.pcap
+*.pcapng

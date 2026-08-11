@@ -7,4 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "requests>=2.34.2",
     "scapy>=2.7.0",
+    "flask>=3.0.0",
+    "python-nmap>=0.7.1",
 ]
