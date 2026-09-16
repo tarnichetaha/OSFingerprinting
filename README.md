@@ -71,7 +71,3 @@ Run live capture:
 ```bash
 python src/scripts/live_capture.py --iface WiFi
 ```
-
-## Refactor Notes
-
-The project now resolves database, resource, PCAP, and model artifact paths from `src/config.py` instead of relying on the current working directory. That removes most of the path duplication across entry points and makes the folder structure easier to follow.
