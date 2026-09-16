@@ -2,11 +2,17 @@ import os
 import glob
 import json
 import time
+import sys
+from pathlib import Path
 import joblib
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any
 from sklearn.metrics import classification_report, confusion_matrix, precision_recall_fscore_support
+
+SRC_DIR = Path(__file__).resolve().parents[1]
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from scripts.pcap_utils import parse_syn_packets_from_pcap, round_ttl
 from config import GROUND_TRUTH_PATH, PCAPS_DIR, resolve_model_artifact_path

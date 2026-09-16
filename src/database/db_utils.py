@@ -7,7 +7,7 @@ from config import DATABASE_PATH, DB_DEBUG
 from database.models import Device, Evidence
 
 DEVICE_COLUMNS = [
-    "mac_address", "mac_oui", "vendor_name", "hostname",
+    "mac_address", "mac_oui", "is_randomized_mac", "vendor_name", "hostname",
     "first_seen", "last_seen", "ip_address_current",
     "inferred_os_family", "inferred_os_version", "inferred_device_type",
     "inferred_manufacturer", "inferred_model",
@@ -75,6 +75,7 @@ def create_tables():
         "CREATE TABLE IF NOT EXISTS devices ("
         "mac_address            TEXT PRIMARY KEY, "
         "mac_oui                TEXT, "
+        "is_randomized_mac      BOOLEAN DEFAULT 0, "
         "vendor_name            TEXT DEFAULT 'Not Recorded', "
         "hostname               TEXT DEFAULT 'Not Recorded', "
         "first_seen             TIMESTAMP, "
@@ -116,6 +117,13 @@ def create_tables():
         except sql.OperationalError:
             # Column might not exist, or SQLite build may not support DROP COLUMN.
             pass
+
+    # Best-effort migration for columns added after initial release.
+    try:
+        cur.execute("ALTER TABLE devices ADD COLUMN is_randomized_mac BOOLEAN DEFAULT 0")
+    except sql.OperationalError:
+        # Column already exists.
+        pass
 
     conn.commit()
     close_connection(conn)
@@ -321,7 +329,7 @@ def add_evidence(mac_address, signal_type, raw_data, matched_signature=None,
     execute_query(conn, query, params)
     close_connection(conn)
 
-    update_device_from_evidence(mac_address)
+    update_device_from_evidence(mac_address, source=source)
 
 
 def get_evidence_for_device(mac_address):
@@ -337,7 +345,7 @@ def get_evidence_for_device(mac_address):
     for row in rows:
         d = dict(zip(EVIDENCE_COLUMNS, row))
         d["raw_data"] = json.loads(d["raw_data"]) if d["raw_data"] else {}
-        result.append(Evidence(**{k: v for k, v in d.items() if k != "source"}))
+        result.append(Evidence(**d))
     return result
 
 
@@ -355,7 +363,7 @@ def get_evidence_by_source(source_name: str) -> list:
     for row in rows:
         d = dict(zip(EVIDENCE_COLUMNS, row))
         d["raw_data"] = json.loads(d["raw_data"]) if d["raw_data"] else {}
-        result.append(Evidence(**{k: v for k, v in d.items() if k != "source"}))
+        result.append(Evidence(**d))
     return result
 
 
@@ -374,7 +382,7 @@ def get_evidence_by_signal_type(mac_address, signal_type):
     for row in rows:
         d = dict(zip(EVIDENCE_COLUMNS, row))
         d["raw_data"] = json.loads(d["raw_data"]) if d["raw_data"] else {}
-        result.append(Evidence(**{k: v for k, v in d.items() if k != "source"}))
+        result.append(Evidence(**d))
     return result
 
 
@@ -388,14 +396,17 @@ def _coerce_text(value):
 
 
 def _score_device_from_evidence(mac_address, all_evidence, source=None):
-    """Minimal, deterministic evidence scorer used to hydrate the device row."""
+    
     existing = get_device_by_mac(mac_address, include_evidence=False)
     now = datetime.now(timezone.utc)
 
     device = existing or Device(mac_address=mac_address, first_seen=now)
     device.last_seen = now
     device.mac_oui = mac_address[:8].upper().replace(':', '-') if mac_address else None
-    if source and not device.source:
+    if mac_address:
+        first_byte = int(mac_address.split(':')[0], 16)
+        device.is_randomized_mac = bool(first_byte & 0b00000010)
+    if source:
         device.source = source
 
     hostname = None
@@ -406,11 +417,14 @@ def _score_device_from_evidence(mac_address, all_evidence, source=None):
     manufacturer = None
     model = None
     latest_ip = None
+    latest_source = None
     os_conf = 0.0
     conf_device_type = 0.0
 
     for evidence in all_evidence:
         raw = evidence.raw_data or {}
+        if evidence.source:
+            latest_source = evidence.source
 
         # Capture latest IP address (prefer non-zero IP over 0.0.0.0)
         if isinstance(raw, dict) and "ip_address" in raw and raw["ip_address"]:
@@ -522,6 +536,8 @@ def _score_device_from_evidence(mac_address, all_evidence, source=None):
         device.inferred_manufacturer = manufacturer
     if model:
         device.inferred_model = model
+    if not device.source and latest_source:
+        device.source = latest_source
 
     # Keep the device row from being "Not Recorded" when we clearly saw structured evidence.
     if device.hostname == "Not Recorded":
@@ -594,7 +610,7 @@ def get_recent_evidence(limit: int = 50) -> list:
     for row in rows:
         d = dict(zip(EVIDENCE_COLUMNS, row))
         d["raw_data"] = json.loads(d["raw_data"]) if d["raw_data"] else {}
-        result.append(Evidence(**{k: v for k, v in d.items() if k != "source"}))
+        result.append(Evidence(**d))
     return result
 
 

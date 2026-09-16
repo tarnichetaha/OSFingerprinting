@@ -34,8 +34,14 @@ Thumbs.db
 
 # Environment and secrets
 .env
+.env.*
+!.env.example
 .env.local
 config.local.py
+*.secret
+*.token
+credentials*.json
+secrets*.json
 
 # Generated runtime files
 output.txt
@@ -44,17 +50,21 @@ logs/
 *.pid
 *.tmp
 *.bak
+OSFP_db.db
+*.db
 *.sqlite-journal
 *.db-journal
-
-# Keep the main SQLite database in version control
-!OSFP_db.db
 
 # Notebook artifacts
 .ipynb_checkpoints/
 
-
-#datasets
+# Local datasets and captures; obtain the public dataset from Zenodo.
 *.csv
 *.pcap
 *.pcapng
+resources/ground_truth*.json
+resources/local.csv
+resources/subnet*.csv
+*.joblib
+models/*metrics*.json
+models/*.png

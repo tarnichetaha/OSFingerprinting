@@ -6,7 +6,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from scripts.parse_pcap import parse_pcap
+from parsepcap import parse_pcap
 from database.db_utils import create_tables
 from config import LOGS_DIR, RESOURCES_DIR
 

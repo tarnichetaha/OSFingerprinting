@@ -12,12 +12,14 @@ class Evidence:
     matched_signature:  Optional[str] = None
     match_confidence:   Optional[float] = None
     observed_at:        Optional[datetime] = None
+    source:             Optional[str] = None
 
 
 @dataclass
 class Device:
     mac_address:        str
     mac_oui:            Optional[str] = None
+    is_randomized_mac:  bool = False
     vendor_name:        str = "Not Recorded"
     hostname:           str = "Not Recorded"
     first_seen:         Optional[datetime] = None

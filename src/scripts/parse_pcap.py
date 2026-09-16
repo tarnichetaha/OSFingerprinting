@@ -32,7 +32,6 @@ def parse_pcap(pcap_path: str = None, source: str | None = None):
     register_source(source, 'pcap')
     print(f"Parsing packet capture: '{pcap_path}'... (source='{source}')")
     it1 = 0
-    # per-MAC "best seen so far" cache, purely to avoid redundant evidence rows
     best_ttl_seen = {}       # mac -> highest ttl seen (closest to original hop count)
     seen_http = set()        # one http UA evidence row per MAC per parse session
 
@@ -41,7 +40,6 @@ def parse_pcap(pcap_path: str = None, source: str | None = None):
     BATCH_SIZE = 500
     stats_packets_flushed = 0
 
-    # Load ML classifier model if present
     model_artifact_path = resolve_model_artifact_path()
     ml_model = None
     label_encoder = None
@@ -75,7 +73,6 @@ def parse_pcap(pcap_path: str = None, source: str | None = None):
             src_ip = str(packet[IP].src)
 
             if packet.haslayer(TCP):
-                # Check for TCP SYN packet
                 if (int(packet[TCP].flags) & 0x12) == 0x02:
                     ttl = int(packet[IP].ttl)
                     if mac not in best_ttl_seen or ttl > best_ttl_seen[mac]:

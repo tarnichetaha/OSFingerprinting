@@ -101,6 +101,16 @@
     background: var(--blue-light);
   }
 
+  tr.source-group-row td {
+    background: #f6f9fd;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    color: #254b78;
+    font-weight: bold;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
   .badge {
     display: inline-block;
     padding: 2px 8px;
@@ -201,17 +211,6 @@
     border-radius: 3px;
   }
 
-  .activity-item {
-    padding: 6px 0;
-    border-bottom: 1px solid #f0f0f0;
-    font-size: 13px;
-  }
-
-  .activity-item .mac {
-    font-family: monospace;
-    color: var(--text-dim);
-  }
-
   .empty-msg {
     color: var(--text-dim);
     padding: 20px 0;
@@ -231,8 +230,7 @@
 
 <nav>
   <button class="tab-btn active" data-panel="devices">Devices</button>
-  <button class="tab-btn" data-panel="low-confidence">Needs More Info</button>
-  <button class="tab-btn" data-panel="activity">Activity</button>
+  <button class="tab-btn" data-panel="metrics">Model Metrics</button>
 </nav>
 
 <main>
@@ -242,6 +240,7 @@
       <thead>
         <tr>
           <th>MAC</th>
+          <th>Randomized MAC</th>
           <th>Vendor</th>
           <th>Hostname</th>
           <th>OS Family</th>
@@ -249,7 +248,6 @@
           <th>Manufacturer</th>
           <th>Model</th>
           <th>Confidence</th>
-          <th>Last Seen</th>
         </tr>
       </thead>
       <tbody id="devices-body"></tbody>
@@ -257,28 +255,10 @@
     <div id="devices-empty" class="empty-msg" style="display:none;">No devices observed yet.</div>
   </div>
 
-  <div id="low-confidence" class="panel">
-    <table>
-      <thead>
-        <tr>
-          <th>MAC</th>
-          <th>Vendor</th>
-          <th>OS Family</th>
-          <th>Device Type</th>
-          <th>Weak Fields</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="low-confidence-body"></tbody>
-    </table>
-    <div id="low-confidence-empty" class="empty-msg" style="display:none;">Nothing needs attention right now.</div>
+  <div id="metrics" class="panel">
+    <div id="metrics-content"></div>
+    <div id="metrics-empty" class="empty-msg" style="display:none;">No training metrics found. Run train_model.py first.</div>
   </div>
-
-  <div id="activity" class="panel">
-    <div id="activity-body"></div>
-    <div id="activity-empty" class="empty-msg" style="display:none;">No recent activity.</div>
-  </div>
-
 </main>
 
 <div id="detail-overlay">
@@ -289,15 +269,13 @@
 </div>
 
 <script>
-const LOW_CONF_THRESHOLD = 0.6;
-
-// ---- tab switching ----
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
     document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById(btn.dataset.panel).classList.add("active");
+    if (btn.dataset.panel === "metrics") loadMetrics();
   });
 });
 
@@ -325,6 +303,33 @@ function displayOrNotRecorded(v) {
   return isMissing(v) ? notRecordedHtml() : v;
 }
 
+function sourceLabel(source) {
+  if (isMissing(source) || source === "Not Recorded" || source === "Unknown" || source === "unknown") {
+    return "Unknown Source";
+  }
+  return source;
+}
+
+function groupDevicesBySource(devices) {
+  const grouped = new Map();
+  devices.forEach(d => {
+    const key = sourceLabel(d.source);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(d);
+  });
+
+  return Array.from(grouped.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([source, sourceDevices]) => {
+      sourceDevices.sort((a, b) => {
+        const aTs = new Date(a.last_seen || 0).getTime() || 0;
+        const bTs = new Date(b.last_seen || 0).getTime() || 0;
+        return bTs - aTs;
+      });
+      return { source, devices: sourceDevices };
+    });
+}
+
 function fmtWithConfidence(value, confidence) {
   return `${displayOrNotRecorded(value)} (${fmtConfidence(confidence)})`;
 }
@@ -336,71 +341,43 @@ function overallConfidence(d) {
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
-function weakFields(d) {
-  const map = {
-    "OS Family": d.confidence_os_family,
-    "OS Version": d.confidence_os_version,
-    "Device Type": d.confidence_device_type,
-    "Manufacturer": d.confidence_manufacturer,
-    "Model": d.confidence_model,
-  };
-  return Object.entries(map)
-    .filter(([k, v]) => v > 0 && v < LOW_CONF_THRESHOLD)
-    .map(([k]) => k);
-}
-
-// ---- load devices ----
 async function loadDevices() {
   const res = await fetch("/api/devices");
   const devices = await res.json();
+  const grouped = groupDevicesBySource(devices);
 
+  const sourceCount = grouped.length;
   document.getElementById("header-stats").textContent =
-    `${devices.length} device${devices.length === 1 ? "" : "s"} observed`;
+    `${devices.length} device${devices.length === 1 ? "" : "s"} observed across ${sourceCount} source${sourceCount === 1 ? "" : "s"}`;
 
   const body = document.getElementById("devices-body");
   body.innerHTML = "";
   document.getElementById("devices-empty").style.display = devices.length ? "none" : "block";
 
-  devices.forEach(d => {
-    const conf = overallConfidence(d);
-    const tr = document.createElement("tr");
-    tr.className = "device-row";
-    tr.onclick = () => openDetail(d.mac_address);
-    tr.innerHTML = `
-      <td>${displayOrNotRecorded(d.mac_address)}</td>
-      <td>${displayOrNotRecorded(d.vendor_name)}</td>
-      <td>${displayOrNotRecorded(d.hostname)}</td>
-      <td>${displayOrNotRecorded(d.inferred_os_family)}</td>
-      <td>${displayOrNotRecorded(d.inferred_device_type)}</td>
-      <td>${displayOrNotRecorded(d.inferred_manufacturer)}</td>
-      <td>${displayOrNotRecorded(d.inferred_model)}</td>
-      <td><span class="badge">${fmtConfidence(conf)}</span></td>
-      <td>${fmtDate(d.last_seen)}</td>
-    `;
-    body.appendChild(tr);
-  });
+  grouped.forEach(group => {
+    const section = document.createElement("tr");
+    section.className = "source-group-row";
+    section.innerHTML = `<td colspan="9">${group.source} (${group.devices.length} device${group.devices.length === 1 ? "" : "s"})</td>`;
+    body.appendChild(section);
 
-  renderLowConfidence(devices);
-}
-
-function renderLowConfidence(devices) {
-  const weak = devices.filter(d => d.low_confidence);
-  const body = document.getElementById("low-confidence-body");
-  body.innerHTML = "";
-  document.getElementById("low-confidence-empty").style.display = weak.length ? "none" : "block";
-
-  weak.forEach(d => {
-    const weakFieldList = weakFields(d);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${displayOrNotRecorded(d.mac_address)}</td>
-      <td>${displayOrNotRecorded(d.vendor_name)}</td>
-      <td>${displayOrNotRecorded(d.inferred_os_family)}</td>
-      <td>${displayOrNotRecorded(d.inferred_device_type)}</td>
-      <td>${weakFieldList.length ? weakFieldList.join(", ") : notRecordedHtml()}</td>
-      <td><button class="action" onclick="probeDevice('${d.mac_address}', this)">Probe</button></td>
-    `;
-    body.appendChild(tr);
+    group.devices.forEach(d => {
+      const conf = overallConfidence(d);
+      const tr = document.createElement("tr");
+      tr.className = "device-row";
+      tr.onclick = () => openDetail(d.mac_address);
+      tr.innerHTML = `
+        <td>${displayOrNotRecorded(d.mac_address)}</td>
+        <td>${d.is_randomized_mac ? "Yes" : "No"}</td>
+        <td>${displayOrNotRecorded(d.vendor_name)}</td>
+        <td>${displayOrNotRecorded(d.hostname)}</td>
+        <td>${displayOrNotRecorded(d.inferred_os_family)}</td>
+        <td>${displayOrNotRecorded(d.inferred_device_type)}</td>
+        <td>${displayOrNotRecorded(d.inferred_manufacturer)}</td>
+        <td>${displayOrNotRecorded(d.inferred_model)}</td>
+        <td><span class="badge">${fmtConfidence(conf)}</span></td>
+      `;
+      body.appendChild(tr);
+    });
   });
 }
 
@@ -418,7 +395,6 @@ async function probeDevice(mac, btn) {
   }
 }
 
-// ---- device detail ----
 async function openDetail(mac) {
   const res = await fetch(`/api/device/${mac}`);
   if (!res.ok) return;
@@ -426,6 +402,7 @@ async function openDetail(mac) {
 
   const fields = [
     ["MAC Address", d.mac_address],
+    ["Randomized MAC", d.is_randomized_mac ? "Yes" : "No"],
     ["Vendor (OUI)", d.vendor_name],
     ["Hostname", d.hostname],
     ["Current IP", d.ip_address_current],
@@ -478,35 +455,274 @@ document.getElementById("detail-overlay").addEventListener("click", (e) => {
   if (e.target.id === "detail-overlay") closeDetail();
 });
 
-// ---- activity feed ----
-async function loadActivity() {
-  const res = await fetch("/api/activity");
-  const items = await res.json();
-  const body = document.getElementById("activity-body");
-  body.innerHTML = "";
-  document.getElementById("activity-empty").style.display = items.length ? "none" : "block";
-
-  items.slice().reverse().forEach(ev => {
-    const div = document.createElement("div");
-    div.className = "activity-item";
-    div.innerHTML = `
-      <span class="mac">${ev.mac_address}</span> —
-      <strong>${ev.signal_type}</strong>
-      ${ev.matched_signature ? "→ " + ev.matched_signature : "→ " + notRecordedHtml()}
-      <span style="float:right; color:#666;">${fmtDate(ev.observed_at)}</span>
-    `;
-    body.appendChild(div);
-  });
-}
-
-// ---- polling ----
 function refreshAll() {
   loadDevices();
-  loadActivity();
 }
 
 refreshAll();
 setInterval(refreshAll, 5000);
+
+function pct(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "N/A";
+  return (v * 100).toFixed(2) + "%";
+}
+
+function num(v, digits = 4) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "N/A";
+  return Number(v).toFixed(digits);
+}
+
+function metricTable(title, headers, rows) {
+  let table = '<h3 style="font-size:14px; margin-top:20px;">' + title + '</h3>';
+  table += '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
+  rows.forEach(row => {
+    table += '<tr>' + row.map(value => '<td>' + value + '</td>').join('') + '</tr>';
+  });
+  return table + '</tbody></table>';
+}
+
+async function loadMetrics() {
+  const content = document.getElementById("metrics-content");
+  const empty = document.getElementById("metrics-empty");
+  const res = await fetch("/api/model-metrics");
+  if (!res.ok) {
+    content.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+  const m = await res.json();
+  const holdout = m.holdout || {
+    accuracy: m.raw_accuracy,
+    macro_precision: m.macro_precision,
+    macro_recall: m.macro_recall,
+    macro_f1: m.macro_f1,
+    train_size: m.train_size,
+    test_size: m.test_size,
+  };
+
+  let html = '<div style="display:flex; gap:16px; margin-bottom:20px;">'
+    + '<div class="badge">Macro F1: ' + pct(holdout.macro_f1) + '</div>'
+    + '<div class="badge">Accuracy: ' + pct(holdout.accuracy) + '</div>'
+    + '<div class="badge">Log-loss: ' + num(holdout.log_loss) + '</div>'
+    + '<div class="badge">AUC OvR: ' + num(holdout.auc_roc_ovr_macro) + '</div>'
+    + '</div>'
+    + '<div style="color:var(--text-dim); font-size:12px; margin-bottom:16px;">'
+    + 'Train size: ' + (holdout.train_size || 0).toLocaleString() + ' &nbsp;|&nbsp; Test size: ' + (holdout.test_size || 0).toLocaleString()
+    + '</div>';
+
+  html += metricTable('Global Hold-out Metrics', ['Metric', 'Value'], [
+    ['Accuracy', pct(holdout.accuracy)],
+    ['Macro precision', pct(holdout.macro_precision)],
+    ['Macro recall', pct(holdout.macro_recall)],
+    ['Macro F1', pct(holdout.macro_f1)],
+    ['Weighted precision', pct(holdout.weighted_precision)],
+    ['Weighted recall', pct(holdout.weighted_recall)],
+    ['Weighted F1', pct(holdout.weighted_f1)],
+    ['Micro precision', pct(holdout.micro_precision)],
+    ['Micro recall', pct(holdout.micro_recall)],
+    ['Micro F1', pct(holdout.micro_f1)],
+    ['Log-loss', num(holdout.log_loss)],
+    ['Multiclass Brier score', num(holdout.brier_score_multiclass)],
+    ['ROC AUC OvR macro', num(holdout.auc_roc_ovr_macro)],
+    ['ROC AUC OvO macro', num(holdout.auc_roc_ovo_macro)],
+  ]);
+
+  const classes = m.classes || Object.keys(m.classification_report || {}).filter(k => !["accuracy", "macro avg", "weighted avg"].includes(k));
+
+  const perClass = m.per_class || classes.map(cls => {
+    const row = m.classification_report[cls];
+    return { class: cls, precision: row.precision, recall: row.recall, f1: row["f1-score"], support: row.support };
+  });
+  const classDistribution = m.class_distribution || Object.fromEntries(
+    perClass.map(row => [row.class, Number(row.support) || 0])
+  );
+  html += metricTable('Per-Class Metrics', ['Class', 'Precision', 'Recall', 'F1', 'Support', 'Specificity', 'FPR'],
+    perClass.map(row => [row.class, pct(row.precision), pct(row.recall), pct(row.f1),
+      Number(row.support).toLocaleString(), pct(row.specificity), pct(row.fpr)]));
+
+  html += '<h3 style="font-size:14px; margin-top:20px;">Confusion Matrix</h3>'
+    + '<div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Shading normalized per true-class row &mdash; darker = larger share of that row.</div>'
+    + '<table><thead><tr><th></th>'
+    + classes.map(c => "<th>Pred " + c + "</th>").join("") + "</tr></thead><tbody>";
+  classes.forEach((cls, rowIndex) => {
+    const row = Array.isArray(m.confusion_matrix)
+      ? (m.confusion_matrix[rowIndex] || [])
+      : (m.confusion_matrix["True_" + cls] || {});
+    const rowValues = classes.map((c, colIndex) => Array.isArray(row) ? (row[colIndex] ?? 0) : (row["Pred_" + c] ?? 0));
+    const rowMax = Math.max(...rowValues, 1);
+    html += "<tr><td><b>True " + cls + "</b></td>"
+      + classes.map((c, i) => {
+        const v = rowValues[i];
+        const intensity = Math.sqrt(v / rowMax); // sqrt boosts contrast for smaller off-diagonal values
+        const bg = "rgba(24, 76, 145, " + intensity.toFixed(3) + ")";
+        const textColor = intensity > 0.45 ? "#ffffff" : "#000000";
+        return '<td style="background:' + bg + '; color:' + textColor + '; text-align:center;">' + v.toLocaleString() + "</td>";
+      }).join("")
+      + "</tr>";
+  });
+  html += "</tbody></table>";
+
+  if (m.calibration) {
+    html += metricTable('Calibration', ['Metric', 'Value'], [
+      ['ECE (10 bins)', num(m.calibration.ece_10_bins)],
+      ['MCE (10 bins)', num(m.calibration.mce_10_bins)],
+    ]);
+  }
+
+  if (m.confidence_thresholds) {
+    html += metricTable('Confidence Thresholds', ['Threshold', 'Precision', 'Recall', 'Coverage', 'F1', 'Samples'],
+      m.confidence_thresholds.map(row => [num(row.threshold, 2), pct(row.precision), pct(row.recall), pct(row.coverage), pct(row.f1), row.count.toLocaleString()]));
+  }
+
+  if (m.feature_importance) {
+    html += metricTable('Feature Importance', ['Feature', 'Gain', 'Cover', 'Frequency'],
+      m.feature_importance.map(row => [row.feature, num(row.gain), num(row.cover), row.frequency.toLocaleString()]));
+  }
+
+  if (m.training_history_sampled && m.training_history_sampled.length) {
+    html += metricTable('Training History', ['Iteration', 'Train LogLoss', 'Test LogLoss', 'Train Accuracy', 'Test Accuracy'],
+      m.training_history_sampled.map(row => [row.iteration, num(row.train_logloss), num(row.test_logloss), pct(row.train_accuracy), pct(row.test_accuracy)]));
+  }
+
+  if (m.timing) {
+    html += metricTable('Timing and Artifact', ['Metric', 'Value'], [
+      ['Inference sample size', Number(m.timing.inference_sample_size || 0).toLocaleString()],
+      ['Inference time / packet', num(m.timing.inference_seconds_per_packet, 8) + ' s'],
+      ['Model size', num(m.timing.model_size_mb, 2) + ' MB'],
+      ['Training time', m.timing.training_seconds == null ? 'N/A (not recorded)' : num(m.timing.training_seconds, 2) + ' s'],
+    ]);
+  }
+
+  if (m.independent_validation) {
+    const independent = m.independent_validation;
+    const status = independent.available
+      ? 'Available'
+      : 'Unavailable: ' + (independent.reason || 'no data');
+    html += metricTable('Independent PCAP Validation', ['Metric', 'Value'], [
+      ['Status', status],
+      ['PCAP files', (independent.pcap_files || []).join(', ') || 'N/A'],
+      ['SYN flows', independent.flow_count == null ? 'N/A' : independent.flow_count.toLocaleString()],
+      ['Matched devices', independent.matched_devices == null ? 'N/A' : independent.matched_devices.toLocaleString()],
+      ['Ground-truth devices', independent.ground_truth_devices == null ? 'N/A' : independent.ground_truth_devices.toLocaleString()],
+      ['Device coverage', pct(independent.coverage)],
+    ]);
+    if (independent.flow && independent.device) {
+      html += metricTable('Independent Results', ['Level', 'Accuracy', 'Macro Precision', 'Macro Recall', 'Macro F1', 'Mean Confidence Correct', 'Mean Confidence Incorrect'], [
+        ['SYN flow', pct(independent.flow.accuracy), pct(independent.flow.macro_precision), pct(independent.flow.macro_recall), pct(independent.flow.macro_f1), num(independent.flow.mean_confidence_correct), num(independent.flow.mean_confidence_incorrect)],
+        ['Device vote', pct(independent.device.accuracy), pct(independent.device.macro_precision), pct(independent.device.macro_recall), pct(independent.device.macro_f1), num(independent.device.mean_confidence_correct), num(independent.device.mean_confidence_incorrect)],
+      ]);
+      html += '<h3 style="font-size:14px; margin-top:20px;">Independent Flow Confusion Matrix</h3>'
+        + '<div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Class order: ' + classes.join(', ') + '</div>'
+        + '<table><thead><tr><th>True \\ Pred</th>' + classes.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>';
+      independent.flow.confusion_matrix.forEach((row, rowIndex) => {
+        html += '<tr><td><b>' + classes[rowIndex] + '</b></td>' + row.map(value => '<td>' + value.toLocaleString() + '</td>').join('') + '</tr>';
+      });
+      html += '</tbody></table>';
+      html += '<h3 style="font-size:14px; margin-top:20px;">Independent Device Confusion Matrix</h3>'
+        + '<table><thead><tr><th>True \\ Pred</th>' + classes.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>';
+      independent.device.confusion_matrix.forEach((row, rowIndex) => {
+        html += '<tr><td><b>' + classes[rowIndex] + '</b></td>' + row.map(value => '<td>' + value.toLocaleString() + '</td>').join('') + '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+  }
+
+  html += '<h3 style="font-size:14px; margin-top:20px;">Class Distribution</h3><table><thead><tr><th>Class</th><th>Samples</th></tr></thead><tbody>';
+  Object.entries(classDistribution).forEach(([cls, count]) => {
+    html += "<tr><td>" + cls + "</td><td>" + count.toLocaleString() + "</td></tr>";
+  });
+  html += "</tbody></table>";
+
+  if (m.training_history) {
+    html += '<h3 style="font-size:14px; margin-top:20px;">Training Curve (mlogloss per boosting round)</h3>'
+      + '<canvas id="training-curve" width="800" height="320" style="border:1px solid var(--border); max-width:100%;"></canvas>'
+      + '<div style="font-size:12px; margin-top:6px;">'
+      + '<span style="color:#4a90d9;">&#9632;</span> Train &nbsp;&nbsp;'
+      + '<span style="color:#d94a4a;">&#9632;</span> Test'
+      + '</div>';
+
+    html += '<h3 style="font-size:14px; margin-top:20px;">Accuracy Curve (per boosting round)</h3>'
+      + '<canvas id="accuracy-curve" width="800" height="320" style="border:1px solid var(--border); max-width:100%;"></canvas>'
+      + '<div style="font-size:12px; margin-top:6px;">'
+      + '<span style="color:#4a90d9;">&#9632;</span> Train &nbsp;&nbsp;'
+      + '<span style="color:#d94a4a;">&#9632;</span> Test'
+      + '</div>';
+  }
+
+  content.innerHTML = html;
+
+  if (m.training_history) {
+    drawTrainingGraph("training-curve", m.training_history.train_mlogloss, m.training_history.test_mlogloss);
+    drawTrainingGraph("accuracy-curve", m.training_history.train_accuracy, m.training_history.test_accuracy);
+  }
+}
+
+function drawTrainingGraph(canvasId, trainSeries, testSeries) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const pad = { left: 50, right: 16, top: 16, bottom: 30 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const allValues = trainSeries.concat(testSeries);
+  const minV = Math.min(...allValues);
+  const maxV = Math.max(...allValues);
+  const range = (maxV - minV) || 1;
+  const n = trainSeries.length;
+
+  const xAt = i => pad.left + (i / (n - 1)) * plotW;
+  const yAt = v => pad.top + plotH - ((v - minV) / range) * plotH;
+
+  // axes
+  ctx.strokeStyle = "#ccc";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.lineTo(pad.left + plotW, pad.top + plotH);
+  ctx.stroke();
+
+  // y-axis labels (5 ticks)
+  ctx.fillStyle = "#666";
+  ctx.font = "11px Arial";
+  ctx.textAlign = "right";
+  for (let t = 0; t <= 4; t++) {
+    const v = minV + (range * t) / 4;
+    const y = yAt(v);
+    ctx.fillText(v.toFixed(3), pad.left - 6, y + 3);
+    ctx.strokeStyle = "#eee";
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotW, y);
+    ctx.stroke();
+  }
+
+  // x-axis labels
+  ctx.textAlign = "center";
+  const xTicks = 5;
+  for (let t = 0; t <= xTicks; t++) {
+    const idx = Math.round((t / xTicks) * (n - 1));
+    ctx.fillText(String(idx), xAt(idx), pad.top + plotH + 16);
+  }
+
+  const drawLine = (series, color) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    series.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+
+  drawLine(trainSeries, "#4a90d9");
+  drawLine(testSeries, "#d94a4a");
+}
 </script>
 
 </body>

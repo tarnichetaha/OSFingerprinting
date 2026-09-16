@@ -9,4 +9,5 @@ dependencies = [
     "scapy>=2.7.0",
     "flask>=3.0.0",
     "python-nmap>=0.7.1",
+    "matplotlib>=3.9.3",
 ]

@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 """
-live_capture.py — Continuous passive network fingerprinting via live packet capture.
-
-Runs indefinitely on a specified interface, processing packets as they arrive
-and writing evidence incrementally to the database. Reuses the existing
-analysis_functions.py logic — nothing is reimplemented here.
-
 Usage:
     python live_capture.py [--iface IFACE]
 
-Requires root / administrator privileges for raw socket access.
 """
 
 import sys
@@ -31,18 +24,15 @@ from scripts.analysis_functions import get_os_from_tcpip_sig, parse_dhcp_options
 from scripts.pcap_utils import extract_mss_from_tcp_options, round_ttl
 from config import LIVE_IFACE, PARSE_DEBUG, resolve_model_artifact_path
 
-# ── in-memory dedup state ─────────────────────────────────────────────────────
-# For tcp_ip: only emit evidence when we see a higher TTL (closer to the source).
+# only emit ttl evidence when we see a higher one
 best_ttl_seen: dict = {}
-# For http: one UA evidence row per session is enough — store the first good UA.
+
 seen_http: set = set()
-# Session statistics
 _stats = {"packets": 0, "evidence": 0, "macs": set()}
 _pending_stats = {"packets": 0, "evidence": 0}
-# Active source tag (set in main() from the chosen interface)
+
 _source: str = "live:unknown"
 
-# ── ML model (optional) ───────────────────────────────────────────────────────
 _ml_model = None
 _label_encoder = None
 _expected_features = None
@@ -64,7 +54,7 @@ def _load_ml_model():
         print("[live_capture] No ML model artifact found — using TTL-only OS fallback.")
 
 
-# ── packet callback ───────────────────────────────────────────────────────────
+# callback
 def _process_packet(packet):
     _stats["packets"] += 1
     _pending_stats["packets"] += 1
@@ -76,7 +66,7 @@ def _process_packet(packet):
     src_ip = str(packet[IP].src)
     _stats["macs"].add(mac)
 
-    # ── TCP SYN → tcp_ip evidence ─────────────────────────────────────────
+    # TCP SYN
     if packet.haslayer(TCP):
         tcp = packet[TCP]
         is_syn = (int(tcp.flags) & 0x12) == 0x02
@@ -137,7 +127,7 @@ def _process_packet(packet):
                 if PARSE_DEBUG:
                     print(f"[tcp_ip]  {mac} ({src_ip}) → {os_guess} ({match_conf:.2f})")
 
-        # ── HTTP User-Agent → http evidence ───────────────────────────────
+        # HTTP
         if packet.haslayer(Raw) and mac not in seen_http:
             ua = parse_http_user_agent(packet[Raw].load)
             if ua:
@@ -153,7 +143,7 @@ def _process_packet(packet):
                 if PARSE_DEBUG:
                     print(f"[http]    {mac} ({src_ip}) → {ua[:80]}")
 
-    # ── DHCP → dhcp evidence ──────────────────────────────────────────────
+    # DHCP
     if packet.haslayer(DHCP):
         parsed = parse_dhcp_options(packet[DHCP])
         if parsed["option_55_param_list"] or parsed["option_60_vendor_class"] or parsed["hostname"]:
@@ -173,7 +163,7 @@ def _process_packet(packet):
         _pending_stats["evidence"] = 0
 
 
-# ── shutdown handler ──────────────────────────────────────────────────────────
+# shutdown
 def _shutdown(signum=None, frame=None):
     if _pending_stats["packets"] or _pending_stats["evidence"]:
         update_source_stats(_source, packet_delta=_pending_stats["packets"], evidence_delta=_pending_stats["evidence"])
@@ -189,7 +179,7 @@ def _shutdown(signum=None, frame=None):
     sys.exit(0)
 
 
-# ── entry point ───────────────────────────────────────────────────────────────
+# entry point
 def main():
     parser = argparse.ArgumentParser(
         description="Passive live network fingerprinting capture. Runs until Ctrl+C."

@@ -1,6 +1,26 @@
 # OS Fingerprinting
 
-Passive and on-demand OS fingerprinting pipeline backed by SQLite and a small Flask dashboard.
+Showcase implementation of passive and on-demand OS fingerprinting from
+network traffic. The repository is intended for code reading and demonstration
+only, not production deployment.
+
+## Public Repository Policy
+
+This repository is released under the terms in [LICENSE](LICENSE). The source
+is available for inspection; no permission is granted to use, reproduce, copy,
+modify, distribute, or create derivative works without written permission.
+
+Private captures, subnet datasets, SQLite runtime data, and ground-truth files
+are intentionally excluded from the repository. The public training dataset
+can be obtained directly from
+[Zenodo](https://zenodo.org/records/14703490).
+
+The Fingerbank API key is supplied through the `FINGERBANK_API_KEY` environment
+variable and is never stored in the repository.
+
+RustScan and Nmap are optional external tools and are not bundled here. Their
+license and attribution information is in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Layout
 
@@ -27,10 +47,10 @@ Capture and inference flows:
 Training and validation scripts for the ML classifier.
 
 `resources/`
-Fingerprints, training CSVs, and ground-truth inputs.
+Public fingerprint resources only. Training CSVs and ground-truth inputs are local files.
 
 `pcaps/`
-Capture files consumed by parsing and validation.
+Local capture files consumed by parsing and validation; captures are not committed.
 
 ## Entry Points
 

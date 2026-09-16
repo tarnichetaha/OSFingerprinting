@@ -1,0 +1,211 @@
+OS FINGERPRINTING - METRIQUES ML
+=================================
+
+Genere le 8 septembre 2026 a partir de:
+- modele effectivement charge: model/os_classifier_pair.joblib
+- donnees: resources/local.csv et resources/subnet1.csv a subnet4.csv
+- split: train_test_split(test_size=0.20, random_state=42, stratify=y)
+- classes: android, linux, macos, windows
+- features: SRC_PORT, TCP_SYN_SIZE, TCP_WIN, TCP_MSS, TTL
+
+Les valeurs ci-dessous sont celles de l'artefact actuel. Les pourcentages sont
+arrondis a 4 decimales lorsqu'ils sont exprimes comme fractions; les tailles et
+supports sont des nombres entiers.
+
+1. METRIQUES GLOBALES - HOLD-OUT
+---------------------------------
+
+| Metrique | Valeur |
+|---|---:|
+| Accuracy | 0.9282 |
+| Macro precision | 0.8693 |
+| Macro recall | 0.9359 |
+| Macro F1 | 0.8988 |
+| Weighted precision | 0.9347 |
+| Weighted recall | 0.9282 |
+| Weighted F1 | 0.9297 |
+| Micro precision | 0.9282 |
+| Micro recall | 0.9282 |
+| Micro F1 | 0.9282 |
+| Log-loss / cross-entropy | 0.2555 |
+| Multiclass Brier score | 0.1203 |
+| ROC AUC OvR macro | 0.9828 |
+| ROC AUC OvO macro | 0.9828 |
+| Train size | 1,875,812 |
+| Test size | 468,954 |
+
+Le Brier score est calcule comme la moyenne de la somme des erreurs
+quadratiques sur les quatre probabilites de classe par observation.
+
+2. METRIQUES PAR CLASSE
+------------------------
+
+| Classe | Precision | Recall | F1 | Support | Specificity | FPR |
+|---|---:|---:|---:|---:|---:|---:|
+| android | 0.7426 | 0.9291 | 0.8255 | 34,857 | 0.9741 | 0.0259 |
+| linux | 0.9053 | 0.9472 | 0.9258 | 142,175 | 0.9569 | 0.0431 |
+| macos | 0.8448 | 0.9516 | 0.8951 | 25,761 | 0.9898 | 0.0102 |
+| windows | 0.9843 | 0.9156 | 0.9487 | 266,161 | 0.9809 | 0.0191 |
+
+Specificity et FPR sont calcules en strategie one-vs-rest a partir de la
+matrice de confusion.
+
+3. MATRICE DE CONFUSION
+------------------------
+
+Ordre des lignes et colonnes: android, linux, macos, windows.
+Les lignes sont les classes reelles; les colonnes sont les classes predites.
+
+| True \\ Pred | android | linux | macos | windows |
+|---|---:|---:|---:|---:|
+| android | 32,387 | 1,404 | 643 | 423 |
+| linux | 4,517 | 134,664 | 152 | 2,842 |
+| macos | 493 | 137 | 24,515 | 616 |
+| windows | 6,217 | 12,539 | 3,707 | 243,698 |
+
+4. CALIBRATION
+--------------
+
+| Metrique | Valeur |
+|---|---:|
+| ECE, 10 bins | 0.0068 |
+| MCE, 10 bins | 0.2954 |
+
+L'ECE est la moyenne ponderee des ecarts absolus entre confiance moyenne et
+accuracy par bin. Le MCE est le plus grand de ces ecarts.
+
+5. HISTORIQUE D'ENTRAINEMENT ECHANTILLONNE
+-------------------------------------------
+
+Les iterations correspondent aux rounds XGBoost. Les valeurs sont donnees aux
+rounds 1, 11, ..., 141 et 150.
+
+| Iteration | Train LogLoss | Test LogLoss | Train Accuracy | Test Accuracy |
+|---:|---:|---:|---:|---:|
+| 1 | 1.2294 | 1.2295 | 0.9272 | 0.9268 |
+| 11 | 0.5376 | 0.5380 | 0.9263 | 0.9258 |
+| 21 | 0.3544 | 0.3551 | 0.9264 | 0.9260 |
+| 31 | 0.2961 | 0.2970 | 0.9265 | 0.9260 |
+| 41 | 0.2747 | 0.2757 | 0.9270 | 0.9266 |
+| 51 | 0.2664 | 0.2674 | 0.9274 | 0.9269 |
+| 61 | 0.2624 | 0.2636 | 0.9278 | 0.9273 |
+| 71 | 0.2603 | 0.2615 | 0.9278 | 0.9273 |
+| 81 | 0.2590 | 0.2602 | 0.9280 | 0.9275 |
+| 91 | 0.2580 | 0.2593 | 0.9286 | 0.9280 |
+| 101 | 0.2573 | 0.2586 | 0.9287 | 0.9281 |
+| 111 | 0.2565 | 0.2579 | 0.9288 | 0.9282 |
+| 121 | 0.2557 | 0.2571 | 0.9287 | 0.9282 |
+| 131 | 0.2550 | 0.2564 | 0.9287 | 0.9281 |
+| 141 | 0.2544 | 0.2559 | 0.9287 | 0.9281 |
+| 150 | 0.2539 | 0.2555 | 0.9287 | 0.9282 |
+
+6. IMPORTANCE DES CARACTERISTIQUES XGBOOST
+-------------------------------------------
+
+Les valeurs Gain et Cover sont les valeurs moyennes rapportees par le booster;
+Frequency est le nombre de splits utilisant la caracteristique.
+
+| Feature | Gain | Cover | Frequency |
+|---|---:|---:|---:|
+| TCP_SYN_SIZE | 1986.3358 | 33026.2617 | 5,486 |
+| TCP_WIN | 1783.9026 | 40865.3398 | 3,968 |
+| TTL | 354.3093 | 33545.2344 | 1,000 |
+| SRC_PORT | 345.2097 | 17772.7080 | 8,709 |
+| TCP_MSS | 214.5311 | 24138.3184 | 4,953 |
+
+7. VALIDATION INDEPENDANTE SUR PCAP
+-----------------------------------
+
+Capture evaluee: house_dump-1.pcap. Elle contient 12 SYN correspondant a un
+seul appareil de la ground truth. Les sept appareils de ground_truth.json ne
+sont donc pas tous observes. Les metriques macro ci-dessous sont calculees sur
+l'espace complet des quatre classes (android, linux, macos, windows), afin de
+conserver une matrice 4x4 comparable au hold-out. Sur les classes effectivement
+observees seulement (windows), precision, recall et F1 valent tous 1.0000.
+
+| Niveau | Accuracy | Macro precision | Macro recall | Macro F1 | Statut |
+|---|---:|---:|---:|---:|---|
+| Flux SYN | 1.0000 | 0.2500 | 0.2500 | 0.2500 | 12 flux |
+| Appareil, vote majoritaire | 1.0000 | 0.2500 | 0.2500 | 0.2500 | 1 appareil |
+
+Couverture appareil: 0.1429 = 1 / 7.
+
+Confiance moyenne:
+
+| Niveau | Correcte | Incorrecte |
+|---|---:|---:|
+| Flux SYN | 0.9799 | N/A, aucune erreur |
+| Appareil | 0.9799 | N/A, aucune erreur |
+
+Matrice de confusion flux, ordre android, linux, macos, windows:
+
+| True \\ Pred | android | linux | macos | windows |
+|---|---:|---:|---:|---:|
+| android | 0 | 0 | 0 | 0 |
+| linux | 0 | 0 | 0 | 0 |
+| macos | 0 | 0 | 0 | 0 |
+| windows | 0 | 0 | 0 | 12 |
+
+Matrice de confusion appareil, meme ordre:
+
+| True \\ Pred | android | linux | macos | windows |
+|---|---:|---:|---:|---:|
+| android | 0 | 0 | 0 | 0 |
+| linux | 0 | 0 | 0 | 0 |
+| macos | 0 | 0 | 0 | 0 |
+| windows | 0 | 0 | 0 | 1 |
+
+8. SEUILS DE CONFIANCE - HOLD-OUT
+----------------------------------
+
+Precision est la proportion de predictions correctes parmi les echantillons
+conserves. Recall est le nombre de predictions correctes conservees divise par
+le nombre total d'echantillons. Coverage est la proportion conservee.
+
+| Threshold | Precision | Recall | Coverage | F1 | Samples |
+|---:|---:|---:|---:|---:|---:|
+| 0.50 | 0.9330 | 0.9269 | 0.9934 | 0.9299 | 465,873 |
+| 0.60 | 0.9418 | 0.9198 | 0.9767 | 0.9307 | 458,017 |
+| 0.70 | 0.9431 | 0.9148 | 0.9700 | 0.9287 | 454,877 |
+| 0.80 | 0.9458 | 0.8992 | 0.9507 | 0.9219 | 445,855 |
+| 0.90 | 0.9647 | 0.7198 | 0.7461 | 0.8245 | 349,905 |
+| 0.95 | 0.9896 | 0.4552 | 0.4599 | 0.6235 | 215,683 |
+
+9. TEMPS ET TAILLE
+------------------
+
+| Metrique | Valeur |
+|---|---:|
+| Temps total d'entrainement | N/A |
+| Temps d'inference mesure, 10,000 paquets | 0.0252 s |
+| Temps moyen d'inference par paquet | 0.00000252 s |
+| Taille de model/os_classifier_pair.joblib | 1.97 MB |
+
+Le script d'entrainement existant ne sauvegarde pas sa duree d'execution dans
+l'artefact; cette valeur ne peut donc pas etre reconstruite exactement sans
+relancer un entrainement complet. Le temps d'inference a ete mesure sur un
+lot de 10,000 lignes du test hold-out avec predict_proba().
+
+10. REPRODUCTION
+----------------
+
+Depuis la racine du projet, avec l'environnement virtuel:
+
+    .venv\Scripts\python.exe src/model/compute_metrics.py
+
+Le script recharge les CSV, applique le meme preprocessing, reconstruit le
+split stratifie random_state=42, charge l'artefact, calcule les metriques et
+met a jour:
+
+    models/os_classifier_metrics.json
+
+Pour la validation independante, apres avoir place des PCAP dans pcaps/:
+
+    .venv\Scripts\python.exe src/model/validate_model.py
+
+L'interface web affiche automatiquement le JSON enrichi dans l'onglet Model
+Metrics via:
+
+    .venv\Scripts\python.exe dashboard/app.py
+
+Puis ouvrir http://127.0.0.1:5000.

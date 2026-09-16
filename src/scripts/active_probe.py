@@ -32,10 +32,6 @@ if str(SRC_DIR) not in sys.path:
 from database.db_utils import get_device_by_mac, add_evidence
 from config import PARSE_DEBUG
 
-# ── Port -> device-type hint table ────────────────────────────────────────────
-# Format: { port: (device_type_string, confidence_0_to_1) }
-# Only ports where the implication is reasonably strong are included.
-# Generic ports (80, 443) are excluded -- far too ambiguous.
 PORT_TYPE_HINTS: dict = {
     9100: ("printer",      0.85),   # RAW / JetDirect
     631:  ("printer",      0.85),   # IPP
@@ -53,14 +49,8 @@ PORT_TYPE_HINTS: dict = {
     548:  ("computer",     0.65),   # AFP -- macOS file sharing
 }
 
-# RustScan tuning -- conservative on purpose. This runs against a single home
-# device chosen deliberately by the user, not a network sweep, but embedded/
-# IoT gear can still behave oddly under a fast, high-concurrency port sweep.
 RUSTSCAN_BATCH_SIZE = 3000
 RUSTSCAN_TIMEOUT_MS = 3000
-
-
-# ── RustScan: fast port discovery ─────────────────────────────────────────────
 
 def _rustscan_available() -> bool:
     return shutil.which("rustscan") is not None
@@ -80,8 +70,8 @@ def rustscan_discover_ports(ip_address: str) -> list[int]:
         "-a", ip_address,
         "-b", str(RUSTSCAN_BATCH_SIZE),
         "-t", str(RUSTSCAN_TIMEOUT_MS),
-        "-g",              # greppable output: "ip -> [port, port, ...]"
-        "--accessible",    # no ASCII art / color codes, easier to parse
+        "-g",
+        "--accessible",
     ]
 
     if PARSE_DEBUG:
@@ -106,8 +96,6 @@ def rustscan_discover_ports(ip_address: str) -> list[int]:
         return []
     return [int(p) for p in match.group(1).split(",") if p.strip().isdigit()]
 
-
-# ── nmap wiring ────────────────────────────────────────────────────────────────
 
 def _require_nmap():
     """Import nmap and verify the binary is reachable. Raises RuntimeError with install hint if not."""
@@ -150,7 +138,7 @@ def probe_device(mac_address: str):
         RuntimeError: nmap binary/package not available, or scan failed.
     """
     mac = mac_address.lower()
-    _nmap, scanner = _require_nmap()   # raises RuntimeError if missing
+    _nmap, scanner = _require_nmap()
 
     device = get_device_by_mac(mac)
     if not device:
@@ -164,7 +152,6 @@ def probe_device(mac_address: str):
     target_ip = device.ip_address_current
     source_tag = f"active:{target_ip}"
 
-    # ── prominent active-probe notice ─────────────────────────────────────
     print()
     print("!" * 70)
     print("  [ACTIVE PROBE] Sending active scan (RustScan discovery + nmap analysis)")
@@ -173,7 +160,6 @@ def probe_device(mac_address: str):
     print("!" * 70)
     print()
 
-    # ── stage 1: RustScan port discovery ─────────────────────────────────
     print(f"[active_probe] Stage 1: RustScan port discovery on {target_ip} ...")
     discovered_ports = rustscan_discover_ports(target_ip)
 
@@ -189,8 +175,6 @@ def probe_device(mac_address: str):
         nmap_arguments = "-O -sV --osscan-guess"
         discovery_method = "nmap_fallback"
 
-    # record the raw discovery step as its own evidence, independent of nmap's
-    # eventual service/OS analysis -- useful to see even if nmap's pass fails
     add_evidence(
         mac_address=mac,
         signal_type="active_port_discovery",
@@ -204,7 +188,6 @@ def probe_device(mac_address: str):
         source=source_tag,
     )
 
-    # ── stage 2: nmap OS + service analysis on the narrowed port set ───────
     print(f"[active_probe] Stage 2: nmap analysis ({nmap_arguments}) ...")
     try:
         scanner.scan(hosts=target_ip, arguments=nmap_arguments)
@@ -220,7 +203,6 @@ def probe_device(mac_address: str):
     host = scanner[target_ip]
     print(f"[active_probe] Host state: {host.state()}")
 
-    # ── active_os_probe evidence ──────────────────────────────────────────
     os_matches = host.get("osmatch", [])
     if os_matches:
         top         = os_matches[0]
@@ -249,7 +231,6 @@ def probe_device(mac_address: str):
         source=source_tag,
     )
 
-    # ── active_port_scan evidence (service/version detail from nmap) ───────
     ports_info: dict = {}
     best_type: str | None = None
     best_conf: float = 0.0
@@ -291,7 +272,6 @@ def probe_device(mac_address: str):
     return refreshed
 
 
-# ── CLI entry point ───────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
         description="Active OS + service probe (on-demand only -- one device at a time)."

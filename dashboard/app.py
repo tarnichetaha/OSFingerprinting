@@ -9,6 +9,7 @@ Then open http://127.0.0.1:5000
 """
 
 import sys
+import json
 import dataclasses
 from pathlib import Path
 
@@ -24,14 +25,23 @@ from database.db_utils import (
     get_all_sources, get_source_summary, get_devices_by_source,
     get_evidence_by_source, create_tables,
 )
-from config import DASHBOARD_PORT, LOW_CONFIDENCE_THRESHOLD
+from config import DASHBOARD_PORT, LOW_CONFIDENCE_THRESHOLD, MODEL_DIR
 
 app = Flask(__name__, template_folder="templates")
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
 NOT_RECORDED = {"Not Recorded", "Unknown", "unknown", "", None}
+
+
+def _is_not_recorded(value) -> bool:
+    """Return True for placeholders like blank/unknown without crashing on lists/dicts."""
+    if isinstance(value, str):
+        return value.strip() in {"", "Not Recorded", "Unknown", "unknown"}
+    try:
+        return value in NOT_RECORDED
+    except TypeError:
+        # Lists/dicts are valid payloads and should be preserved.
+        return False
 
 def _is_low_confidence(device) -> bool:
     fields = [
@@ -48,20 +58,18 @@ def _is_low_confidence(device) -> bool:
 def _device_to_dict(device) -> dict:
     d = dataclasses.asdict(device)
     d["low_confidence"] = _is_low_confidence(device)
-    # remove internal list — evidence is fetched separately
     d.pop("evidence", None)
     return d
 
 
 def _evidence_to_dict(ev) -> dict:
     d = dataclasses.asdict(ev)
-    # raw_data is already a dict from get_evidence_for_device
     return d
 
 
 def _filter_recorded(raw: dict) -> dict:
     """Strip keys whose values are blank / 'Not Recorded' / None."""
-    return {k: v for k, v in raw.items() if v not in NOT_RECORDED}
+    return {k: v for k, v in raw.items() if not _is_not_recorded(v)}
 
 
 def _serialize_evidence_rows(rows) -> list[dict]:
@@ -74,14 +82,11 @@ def _serialize_evidence_rows(rows) -> list[dict]:
     return result
 
 
-# ── page routes ───────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-
-# ── device API ────────────────────────────────────────────────────────────────
 
 @app.route("/api/devices")
 def api_devices():
@@ -116,8 +121,6 @@ def api_probe(mac):
         return jsonify({"error": str(exc)}), 500
 
 
-# ── sources API ───────────────────────────────────────────────────────────────
-
 @app.route("/api/sources")
 def api_sources():
     sources = get_all_sources()
@@ -140,7 +143,14 @@ def api_source_evidence(source_name):
     return jsonify(_serialize_evidence_rows(rows))
 
 
-# ── entry point ───────────────────────────────────────────────────────────────
+@app.route("/api/model-metrics")
+def api_model_metrics():
+    metrics_path = MODEL_DIR / "os_classifier_metrics.json"
+    if not metrics_path.exists():
+        abort(404)
+    with open(metrics_path, "r", encoding="utf-8") as f:
+        return jsonify(json.load(f))
+
 
 if __name__ == "__main__":
     create_tables()

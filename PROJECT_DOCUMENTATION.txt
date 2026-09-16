@@ -1,0 +1,1018 @@
+OS FINGERPRINTING PROJECT
+==========================
+
+Purpose
+-------
+
+This project is a Python-based network OS fingerprinting system. It observes
+network traffic, extracts device and TCP/IP fingerprints, classifies operating
+systems, stores device/evidence records in SQLite, and exposes the records
+through a small Flask dashboard. It supports three operational workflows:
+
+1. Offline passive analysis of a PCAP or PCAPNG capture.
+2. Passive live capture from a selected network interface.
+3. An explicitly requested active probe of one already-known device using
+   RustScan and nmap.
+
+The project also contains a supervised machine-learning training and
+validation pipeline. The trained classifier predicts one of four OS labels:
+android, linux, macos, or windows.
+
+The description below is based on the current executable code and current
+artifacts. Older design notes and orphaned/debug-only code are not treated as
+implemented functionality.
+
+
+1. Technology Stack
+-------------------
+
+Languages and formats
+
+- Python 3.12 or newer.
+- SQL, specifically SQLite SQL used by the database layer.
+- HTML, CSS, and browser JavaScript for the dashboard frontend.
+- JSON for evidence payloads, ground-truth labels, and model metrics.
+- CSV for supervised-learning datasets.
+- PCAP and PCAPNG for captured network packets.
+- Joblib serialization for the paired machine-learning artifact.
+- XGBoost's native model representation inside the serialized estimator.
+
+Application frameworks and libraries
+
+- Flask 3.x: HTTP server, routing, JSON APIs, and Jinja template rendering.
+- Scapy 2.7.0: PCAP/PCAPNG reading, live sniffing, Ethernet/IP/TCP/DHCP/Raw
+  packet inspection, and packet-layer access.
+- pandas 3.0.3: tabular dataset loading, preprocessing, feature DataFrames,
+  grouping, and inference tables.
+- NumPy 2.5.1: probability-array operations and argmax calculations.
+- XGBoost 3.3.0: multiclass gradient-boosted tree classifier.
+- scikit-learn 1.9.0: stratified splitting, label encoding, balanced sample
+  weights, and classification metrics.
+- joblib 1.5.3: loading and saving the model/label-encoder artifact.
+- python-nmap 0.7.1: Python wrapper used to invoke the system nmap program.
+- SQLite: local file database accessed through Python's standard sqlite3 module.
+- Python standard library components: pathlib, argparse, signal, subprocess,
+  shutil, json, uuid, datetime, dataclasses, glob, os, sys, time, re, and
+  typing.
+- RustScan: optional external executable used for fast TCP port discovery
+  before nmap. It is not a Python package.
+- nmap: external system executable required by the active-probe workflow.
+
+Dependency declarations
+
+pyproject.toml declares these direct project dependencies:
+
+- requests >= 2.34.2
+- scapy >= 2.7.0
+- flask >= 3.0.0
+- python-nmap >= 0.7.1
+
+requirements.txt pins the broader environment used by the current machine-
+learning pipeline and runtime:
+
+- certifi 2026.6.17
+- charset-normalizer 3.4.9
+- colorama 0.4.6
+- idna 3.18
+- iniconfig 2.3.0
+- joblib 1.5.3
+- narwhals 2.24.0
+- nmcli 1.8.0
+- numpy 2.5.1
+- packaging 26.2
+- pandas 3.0.3
+- pluggy 1.6.0
+- Pygments 2.20.0
+- pytest 9.1.1
+- python-dateutil 2.9.0.post0
+- python-nmap 0.7.1
+- requests 2.34.2
+- scapy 2.7.0
+- scikit-learn 1.9.0
+- scipy 1.18.0
+- six 1.17.0
+- threadpoolctl 3.6.0
+- tzdata 2026.3
+- urllib3 2.7.0
+- xgboost 3.3.0
+
+The separate requirements file without an extension contains a smaller pinned
+network-capture environment: certifi, cffi, charset-normalizer, cryptography,
+idna, pycparser, requests, scapy, and urllib3. The project therefore has both
+a minimal capture-oriented dependency list and a broader environment list that
+also includes machine-learning and test packages.
+
+
+2. Repository Contents Used by the Project
+-------------------------------------------
+
+Root files
+
+- main.py: primary offline PCAP-ingestion entry point. It prepares directories,
+  creates the database tables, and calls the parser.
+- pyproject.toml: package metadata, Python requirement, and direct dependencies.
+- requirements.txt: pinned full environment dependency list.
+- requirements: smaller pinned dependency list.
+- uv.lock: locked dependency-resolution data for the uv environment manager.
+- README.md: short usage and layout reference.
+- plan.md: project planning/design notes; it is not the authority for behavior
+  that is absent from current executable code.
+- OSFP_db.db: local SQLite database generated/updated by capture workflows. It
+  is not part of the public showcase repository.
+- .python-version: project Python-version selection metadata.
+- licenses: project license/dependency license material.
+
+Dashboard
+
+- dashboard/app.py: Flask application, page route, JSON API routes, device
+  serialization, evidence filtering, and model-metrics serving.
+- dashboard/templates/index.html: browser UI, device table, source grouping,
+  device detail view, evidence display, active-probe button, polling, and model
+  metrics panel.
+- dashboard/__init__.py: dashboard package marker.
+
+Configuration and database
+
+- src/config.py: canonical project paths and runtime constants.
+- src/database/models.py: Device and Evidence dataclasses.
+- src/database/db_utils.py: SQLite schema creation, source tracking, evidence
+  upserts, device upserts, evidence-to-device aggregation, and query helpers.
+
+Packet processing and inference
+
+- src/scripts/parse_pcap.py: offline passive parser and database orchestration.
+- src/scripts/live_capture.py: passive live sniffer and evidence writer.
+- src/scripts/active_probe.py: one-device active RustScan/nmap workflow.
+- src/scripts/predict_pcap.py: standalone ML inference and per-MAC summary for
+  a PCAP/PCAPNG, without writing the result to SQLite.
+- src/scripts/pcap_utils.py: TCP SYN extraction, MSS extraction, and TTL
+  normalization shared by standalone inference and validation.
+- src/scripts/analysis_functions.py: MAC-randomization detection, TCP option
+  signature formatting, DHCP option extraction, and HTTP User-Agent parsing.
+
+Machine learning
+
+- src/model/train_model.py: dataset loading, cleaning, deduplication, split,
+  XGBoost training, held-out evaluation, artifact export, and metric export.
+- src/model/validate_model.py: independent PCAP validation against a MAC-to-OS
+  ground-truth map at row and device-majority-vote levels.
+- models/os_classifier_pair.joblib: paired trained estimator, label encoder,
+  and feature-name list written by training.
+- models/os_classifier_metrics.json: held-out evaluation metrics and training
+  history served by the dashboard.
+- model/os_classifier_pair.joblib: legacy/alternate model-artifact location.
+  Runtime artifact resolution checks this directory first and uses it when the
+  file exists, before checking models/.
+
+Resources
+
+- resources/local.csv: large local training CSV with the five core feature
+  columns plus PROTOCOL and OS_LABEL.
+- resources/subnet1.csv through subnet4.csv: broader flow datasets containing
+  the core features plus additional flow fields.
+- resources/ground_truth.json: local MAC-address-to-true-OS mapping used by
+  independent PCAP validation. It is excluded from the public repository.
+- resources/p0f.fp: optional legacy fingerprint resource. The current parser
+  does not invoke a p0f matcher and does not require this file.
+
+The configured PCAP directory is pcaps/. PCAP and PCAPNG inputs are local and
+excluded from the public repository.
+
+The training datasets are not committed. Obtain the public dataset from:
+https://zenodo.org/records/14703490
+
+
+3. Configuration and Paths
+--------------------------
+
+src/config.py resolves all important paths relative to the repository root:
+
+- LOGS_DIR: logs/
+- RESOURCES_DIR: resources/
+- PCAPS_DIR: pcaps/
+- DATABASE_PATH: OSFP_db.db
+- GROUND_TRUTH_PATH: resources/ground_truth.json
+- DEFAULT_PCAP_PATH: pcaps/merged_output.pcapng
+- MODEL_DIR: models/
+- LEGACY_MODEL_DIR: model/
+- MODEL_ARTIFACT_NAME: os_classifier_pair.joblib
+
+Runtime defaults:
+
+- LIVE_IFACE = WiFi
+- DASHBOARD_PORT = 5000
+- LOW_CONFIDENCE_THRESHOLD = 0.6
+- The passive parser has PARSE_DEBUG enabled by default.
+- Database debug and analysis debug are disabled by default.
+
+resolve_model_artifact_path() checks model/os_classifier_pair.joblib first,
+then models/os_classifier_pair.joblib. Training writes a new artifact to
+models/, so a pre-existing file under model/ can take precedence during later
+inference. For reproducible inference, the artifact actually selected by the
+resolver must be checked.
+
+
+4. Offline Passive PCAP Workflow
+---------------------------------
+
+Command:
+
+    python main.py
+
+The root entry point performs these steps:
+
+1. Adds src/ to sys.path so the source packages can be imported.
+2. Creates logs/ if needed.
+3. Verifies that resources/ exists.
+4. Creates the SQLite sources, devices, and evidence tables and indexes.
+5. Calls parse_pcap().
+
+PCAP selection
+
+parse_pcap() uses this selection order when no path is supplied:
+
+1. pcaps/merged_output.pcapng if it exists.
+2. The first lexicographically sorted .pcap or .pcapng file in pcaps/.
+3. The configured default path even if it does not exist, allowing Scapy to
+   report the resulting read error.
+
+The source name defaults to the PCAP basename. The source is registered as a
+pcap source before packet processing starts.
+
+Packet filtering and extraction
+
+The parser reads with Scapy's PcapReader and falls back to PcapNgReader if the
+first reader cannot open the file. It processes at most 200,000 packet loop
+iterations. Packets must contain both Ethernet and IPv4 layers. The source MAC
+address is lowercased and is the device key; the IPv4 source address is also
+recorded.
+
+For TCP packets:
+
+- Only an initial SYN is treated as a TCP fingerprint: SYN must be set and ACK
+  must not be set. The bit test is (flags & 0x12) == 0x02.
+- The parser extracts source port, total IPv4 packet length, TCP window,
+  optional TCP MSS, raw TTL, and a textual TCP-option signature.
+- TTL is rounded upward into 32, 64, 128, or 256 using round_ttl(). A nonpositive
+  TTL maps to 64.
+- The classifier artifact is loaded once at parser start. If available, the
+  five extracted features are placed into a pandas DataFrame in the artifact's
+  expected feature order and passed to predict_proba(). The highest-probability
+  label becomes the OS match and the highest probability becomes confidence.
+- If the model cannot be loaded or is absent, a coarse fallback is used:
+  rounded TTL <= 64 becomes linux / android, <= 128 becomes windows, and values
+  above 128 become network gear. This is a fallback, not the trained model.
+- One tcp_ip evidence record is queued for a MAC when its observed TTL is higher
+  than any earlier TTL for that MAC in the current parse session. This keeps the
+  highest/closest-to-original TTL observation.
+
+For raw TCP payloads:
+
+- The parser checks for an HTTP-looking payload and extracts the first
+  User-Agent header.
+- Only one HTTP evidence record per MAC is kept during a parse session.
+- The record stores the User-Agent and source IP as raw evidence.
+
+For DHCP packets:
+
+- DHCP option 55, the parameter request list, is converted to a comma-separated
+  string.
+- DHCP option 60, the vendor class identifier, is converted to text.
+- DHCP option 12, the hostname, is decoded as UTF-8 with invalid bytes ignored.
+- The requested IP is taken from ciaddr, yiaddr, or requested_addr when present.
+- DHCP evidence is recorded only when at least option 55, option 60, or hostname
+  is present. The selected/requested IP is added to the raw evidence.
+
+Persistence and batching
+
+Evidence is queued in memory and written in batches of 500 records. Each flush:
+
+1. Upserts evidence rows using the uniqueness key (MAC, signal type, source).
+2. Updates packet and evidence counters for the source.
+3. Recomputes each touched MAC once from all its stored evidence.
+4. Upserts the resulting Device row.
+
+A final partial batch is flushed at end of file. Source packet statistics are
+also updated for packets that generated no evidence. Execution time and packet
+count are printed when parsing ends.
+
+
+5. Passive Live Capture Workflow
+--------------------------------
+
+Command:
+
+    python src/scripts/live_capture.py --iface WiFi
+
+The --iface argument overrides the configured LIVE_IFACE. The program registers
+a source named live:<interface>, creates the database tables, loads the model
+artifact if possible, installs SIGINT/SIGTERM handlers, and starts Scapy sniff()
+with:
+
+    filter = "tcp or udp port 67 or udp port 68"
+    store = 0
+
+This is passive capture. It runs until interrupted.
+
+The packet callback applies the same core logic as offline parsing:
+
+- Ethernet and IPv4 packets are associated with the lowercased source MAC.
+- TCP SYN fingerprints use source port, IPv4 length, TCP window, TCP MSS, and
+  rounded TTL.
+- The trained model predicts a class and probability when available; otherwise
+  the TTL fallback is used with confidence 0.5.
+- Higher TTL observations are preferred per MAC.
+- HTTP User-Agent and DHCP evidence are extracted.
+- Evidence is written immediately through the single-row database upsert helper.
+- Packet/evidence source counters are flushed every 250 packets and once more
+  during shutdown.
+- The callback does not retain packets in RAM.
+
+On shutdown, the program prints packet count, unique MAC count, and evidence
+count before exiting.
+
+
+6. Active Probe Workflow
+------------------------
+
+Commands:
+
+    python src/scripts/active_probe.py --mac AA:BB:CC:DD:EE:FF
+
+or from the dashboard's device detail panel by pressing Run Active Probe when
+the device is considered low confidence.
+
+This is the only workflow that intentionally sends active network probes. The
+selected MAC must already exist in SQLite and must have a current IP learned
+from captured evidence.
+
+Stage 1: port discovery
+
+- If RustScan is installed and on PATH, the project scans the full TCP port
+  range with a batch size of 3000 and a 3000 ms timeout, with a 90 second
+  subprocess timeout.
+- RustScan output is parsed for its bracketed port list.
+- If RustScan is unavailable, times out, fails, or returns no ports, the flow
+  falls back to nmap's own full-range discovery.
+- A separate active_port_discovery evidence record stores the target IP, open
+  port list, and discovery method.
+
+Stage 2: nmap analysis
+
+nmap is called through python-nmap. The command arguments are:
+
+- RustScan found ports: -O -sV --osscan-guess -p <comma-separated-ports>
+- Fallback: -O -sV --osscan-guess
+
+The result records:
+
+- active_os_probe evidence containing up to ten nmap OS matches, their names,
+  accuracies, target IP, and discovery method.
+- active_port_scan evidence containing open TCP ports and nmap service,
+  product, and version details.
+- A device-type hint for selected ports, such as printer, camera, server,
+  network_gear, or computer, using predefined confidence values. Generic HTTP
+  ports 80 and 443 are deliberately not used as type hints.
+
+The device row is recomputed after evidence insertion and returned. Failures
+include a missing python-nmap package, missing nmap executable, unknown device,
+missing IP, failed scan, or a host with no nmap result.
+
+
+7. Standalone PCAP Inference
+----------------------------
+
+Command:
+
+    python src/scripts/predict_pcap.py <path_to_pcap_or_pcapng>
+
+With no argument it chooses the first sorted PCAP/PCAPNG file under pcaps/.
+This workflow does not update SQLite. It prints a prediction report only.
+
+It loads the paired joblib artifact, verifies that the XGBoost booster feature
+names exactly match the stored feature list, extracts initial TCP SYN packets,
+and creates one feature row per SYN. Each row includes its source MAC and a
+flow key, but prediction uses only:
+
+    SRC_PORT, TCP_SYN_SIZE, TCP_WIN, TCP_MSS, TTL
+
+It computes class probabilities, the predicted OS, and confidence for every
+SYN. Results are grouped by source MAC. The per-MAC predicted OS is the most
+frequent row-level prediction, confidence is the mean row confidence, and the
+number of observed SYN flows is reported. Devices are sorted by flow count.
+
+
+8. SQLite Data Model and Evidence Aggregation
+----------------------------------------------
+
+The database is OSFP_db.db. create_tables() creates three tables.
+
+sources
+
+- source_name: primary key, for example a PCAP basename or live:WiFi.
+- source_type: pcap or live.
+- first_seen and last_seen timestamps.
+- packet_count and evidence_count counters.
+
+Each parser/capture session registers or touches its source and increments the
+counters as packets/evidence are processed.
+
+devices
+
+- mac_address: primary key and device identity.
+- mac_oui: first three MAC octets formatted as an OUI-like value.
+- is_randomized_mac: derived from the locally administered bit of the first
+  MAC octet.
+- vendor_name and hostname.
+- first_seen, last_seen, and current IP address.
+- inferred OS family, OS version, device type, manufacturer, and model.
+- confidence for OS family, OS version, and device type.
+- source identifying the associated capture/interface.
+
+Evidence is stored separately and is loaded on demand for a device.
+
+evidence
+
+- evidence_id: generated UUID.
+- mac_address: foreign key to devices.mac_address.
+- signal_type: values produced by current workflows include tcp_ip, http, dhcp,
+  active_port_discovery, active_os_probe, and active_port_scan.
+- raw_data: JSON text containing the original extracted values.
+- matched_signature and match_confidence.
+- observed_at timestamp.
+- source identifying the PCAP, live interface, or active probe.
+
+There are indexes on evidence.mac_address and evidence.source. Evidence uses a
+unique key of (mac_address, signal_type, source), so repeated observations of
+the same signal from the same source update the existing record rather than
+creating an unbounded duplicate stream.
+
+Device recomputation
+
+After evidence is stored, _score_device_from_evidence() reads all evidence for
+the MAC and derives a current device summary:
+
+- Latest usable IP is retained, preferring a nonzero address.
+- Hostname comes from DHCP evidence.
+- DHCP vendor class can provide rough Android, iOS, Windows, or Linux hints,
+  manufacturer, device type, and selected version text.
+- TCP evidence supplies the OS family and its model probability.
+- HTTP User-Agent can infer Android, iOS, Windows, browser-advertised OS
+  versions, manufacturer, and simple model tokens.
+- nmap OS evidence has highest trust for OS confidence.
+- nmap port evidence can provide device type and confidence.
+- Missing structured values become Unknown after evidence exists rather than
+  remaining Not Recorded.
+
+The device row is then upserted without overwriting first_seen on conflict.
+
+
+9. Machine-Learning Pipeline
+----------------------------
+
+9.1 Learning objective
+
+The classifier learns to map TCP SYN fingerprint characteristics to one of
+four operating-system labels: android, linux, macos, and windows. It is a
+packet/flow-level classifier. During validation and standalone inference,
+multiple SYN predictions can be aggregated into a device-level majority vote.
+
+The deployed artifact is an XGBClassifier configured for multiclass probability
+prediction. It returns a probability for every class, which is used both for
+the selected prediction and as the confidence value.
+
+9.2 Training inputs
+
+src/model/train_model.py loads every *.csv file in resources/ using a sorted
+glob. In the current workspace these are:
+
+- local.csv: 16,919,278 rows. It contains SRC_PORT, TCP_SYN_SIZE, TCP_WIN,
+  TCP_MSS, PROTOCOL, TTL, and OS_LABEL.
+- subnet1.csv: 2,072,414 rows.
+- subnet2.csv: 5,543,868 rows.
+- subnet3.csv: 4,061,360 rows.
+- subnet4.csv: 14,082,272 rows.
+
+The subnet files contain additional bidirectional flow fields, but training
+selects only the five classifier features and OS_LABEL. The total raw input
+size is 42,679,192 CSV data rows before cleaning and deduplication. The saved
+metrics report a final 2,344,766-row modeling pool, split into 1,875,812 train
+rows and 468,954 test rows.
+
+The feature contract is exactly:
+
+    FEATURE_COLUMNS = [
+        "SRC_PORT",
+        "TCP_SYN_SIZE",
+        "TCP_WIN",
+        "TCP_MSS",
+        "TTL",
+    ]
+
+The target is OS_LABEL.
+
+9.3 Training preprocessing
+
+Each CSV is first inspected for its available columns. pandas then loads only
+the feature columns, OS_LABEL, and optional flow-key columns SRC_IP, DST_IP,
+and DST_PORT. This reduces memory use compared with loading every field.
+
+The sequential cleaning steps are:
+
+1. Remove rows where TCP_SYN_SIZE is zero. These rows do not provide a valid
+   SYN packet-size signal.
+2. Remove rows where TCP_WIN is zero. These rows do not provide a valid TCP
+   window signal.
+3. Merge the ios label into macos. The final label space therefore has macos,
+   not a separate ios class.
+4. Normalize TTL. Valid expected values are 32, 64, 128, and 256. Any other
+   positive TTL is rounded upward to the next threshold; nonpositive TTL maps
+   to 64.
+5. Deduplicate each source file. If at least two flow-key columns are present,
+   the available subset of SRC_IP, SRC_PORT, DST_IP, and DST_PORT is used. For
+   the local dataset, which lacks IP and destination-port fields, the fallback
+   key is the exact five-feature plus target tuple.
+6. Keep only the five features and target, then concatenate all per-file
+   results into the final training pool.
+
+No standard-scaler or one-hot encoding is applied to these five features. The
+XGBoost tree model consumes the numeric values directly. LabelEncoder converts
+string OS labels into numeric class indexes, and the encoder is saved alongside
+the model so predictions can be converted back to OS names.
+
+9.4 Train/test split
+
+The final pool is divided with sklearn train_test_split():
+
+- test_size = 0.20
+- random_state = 42
+- stratify = y_encoded
+
+Stratification preserves class proportions between train and held-out test
+sets. The training rows receive balanced sample weights from
+compute_sample_weight("balanced", y_train), compensating for the highly
+uneven class distribution.
+
+The model configuration is:
+
+- XGBClassifier
+- objective = multi:softprob
+- eval_metric = [mlogloss, merror]
+- n_estimators = 150
+- max_depth = 6
+- learning_rate = 0.1
+- random_state = 42
+- n_jobs = -1
+
+The model is fitted with the balanced sample weights and evaluates both the
+training and held-out test sets after each boosting round. The resulting
+training/test mlogloss and accuracy histories are retained for inspection.
+
+9.5 Training evaluation
+
+The training script predicts the held-out test set and calculates:
+
+- Macro precision.
+- Macro recall.
+- Macro F1.
+- Raw accuracy.
+- Per-class precision, recall, F1, and support.
+- A confusion matrix indexed by true and predicted class.
+- Class distribution before the split.
+- Training and test sizes.
+- Per-round train/test mlogloss and accuracy history.
+
+The current models/os_classifier_metrics.json reports:
+
+- Macro precision: 0.8692742858
+- Macro recall: 0.9358864550
+- Macro F1: 0.8987558520
+- Raw accuracy: 0.9281592651
+- Train size: 1,875,812
+- Test size: 468,954
+
+Its class distribution is:
+
+- windows: 1,330,805
+- linux: 710,875
+- android: 174,282
+- macos: 128,804
+
+The saved report is the result of a particular training run and is not
+recomputed merely by starting the dashboard.
+
+9.6 Saved model artifact
+
+Training writes models/os_classifier_pair.joblib. The joblib object is a
+mapping with three keys:
+
+- model: the fitted XGBClassifier.
+- label_encoder: the fitted sklearn LabelEncoder.
+- feature_names: the exact ordered list of five feature names.
+
+The currently inspected artifact contains classes android, linux, macos, and
+windows and the five features in the same order as the training contract. The
+explicit feature-name checks in standalone inference and validation protect
+against silently passing columns in a different order.
+
+9.7 Online use of the model in passive parsing
+
+Offline parsing and live capture do not retrain the model. They load the
+paired artifact once, build a one-row DataFrame for each selected TCP SYN, use
+the stored feature order, call predict_proba(), and store the maximum
+probability as match_confidence. The predicted class is stored as the TCP
+matched_signature. If loading fails, they continue with the rounded-TTL coarse
+fallback described earlier.
+
+This means the ML classifier is used for OS-family evidence, while DHCP, HTTP,
+MAC flags, and active nmap results supply complementary non-ML evidence and
+metadata.
+
+
+10. Independent PCAP Validation
+-------------------------------
+
+Command:
+
+    python src/model/validate_model.py
+
+Validation is independent of the random held-out training split. It loads the
+paired artifact, checks feature-name order, loads resources/ground_truth.json,
+then scans every .pcap and .pcapng file under pcaps/.
+
+For each capture it extracts initial TCP SYN packets with the shared Scapy
+utility, rounds TTL in the same way as training, and combines all captures.
+Only rows whose source MAC appears in ground_truth.json are evaluated. MAC keys
+and labels are normalized to lowercase.
+
+The validator reports two levels of performance:
+
+1. Row-level evaluation: every matched SYN flow is compared with its true OS.
+   It reports macro precision, macro recall, macro F1, raw accuracy,
+   classification report, confusion matrix, and per-class probability columns.
+2. Device-level evaluation: all rows for each MAC are grouped. The predicted
+   OS is the majority vote, confidence is the mean row confidence, and the
+   result includes flow count, correctness, and vote breakdown.
+
+It also investigates disagreements where high-confidence predictions (at
+least 0.70) span multiple labels or omit the device's true label. For those
+cases it prints grouped SYN signatures consisting of source port, SYN size,
+window, MSS, TTL, predicted label, flow count, and mean confidence.
+
+This validation depends on real PCAP files being present under pcaps/ and on
+MAC addresses in those captures matching the ground-truth map. It does not
+modify the database or model artifact.
+
+
+11. Dashboard and HTTP API
+---------------------------
+
+Command:
+
+    python dashboard/app.py
+
+The Flask application binds to 127.0.0.1:5000 by default and calls
+create_tables() before starting. The root page renders the dashboard template.
+The browser refreshes device data every five seconds.
+
+Page behavior
+
+- Devices are loaded from /api/devices and grouped by source.
+- Rows show MAC, randomized-MAC status, vendor, hostname, OS family, device
+  type, manufacturer, model, and an overall displayed confidence.
+- Clicking a device opens a detail panel with identity, current IP, timestamps,
+  source, per-field confidence, and raw evidence.
+- Devices with any nonzero confidence below 0.6 are marked low confidence and
+  receive a Run Active Probe button.
+- The Model Metrics tab loads the saved JSON metrics and displays headline
+  metrics, train/test sizes, and per-class results.
+- The page polls the device list but does not automatically run probes.
+
+API routes
+
+- GET /: renders index.html.
+- GET /api/devices: returns all device summaries.
+- GET /api/device/<mac>: returns one device plus serialized evidence; 404 if
+  the MAC is unknown.
+- GET /api/activity: returns the 50 most recent evidence rows.
+- POST /api/probe/<mac>: runs active_probe.probe_device() and returns the
+  updated device, or a 500 JSON error.
+- GET /api/sources: returns registered source statistics.
+- GET /api/sources/<source_name>: returns source summary, device count,
+  signal-type counts, OS distribution, and devices.
+- GET /api/sources/<source_name>/evidence: returns evidence for a source.
+- GET /api/model-metrics: returns models/os_classifier_metrics.json, or 404 if
+  it does not exist.
+
+The Flask app strips empty/unknown raw-data fields from displayed evidence and
+keeps list/dictionary payloads intact during placeholder filtering.
+
+
+12. End-to-End Data Flow
+------------------------
+
+Passive PCAP or live interface
+        |
+        v
+Scapy packet layers: Ethernet, IPv4, TCP, DHCP, Raw
+        |
+        +--> TCP SYN features --> XGBoost probabilities --> tcp_ip evidence
+        |
+        +--> DHCP options -------------------------------> dhcp evidence
+        |
+        +--> HTTP User-Agent ----------------------------> http evidence
+        |
+        +--> MAC/IP/hostname/time metadata
+        |
+        v
+SQLite evidence upsert keyed by MAC + signal + source
+        |
+        v
+Evidence aggregation and device upsert
+        |
+        v
+SQLite devices/sources tables
+        |
+        +--> Flask APIs and dashboard
+        |
+        +--> Optional user-requested active RustScan/nmap probe
+
+Training follows a separate path:
+
+CSV datasets -> cleaning/deduplication -> five numeric features + encoded label
+-> stratified 80/20 split -> balanced XGBoost training -> held-out metrics
+-> joblib model/encoder/features artifact -> passive and standalone inference.
+
+
+13. Operational Limitations and Reproducibility Notes
+------------------------------------------------------
+
+- Passive fingerprints identify observed behavior, not guaranteed device truth.
+  NAT, proxies, middleboxes, changed TCP stacks, and unusual traffic can make
+  a prediction misleading.
+- The five ML features are relatively coarse: source port, SYN packet size,
+  TCP window, MSS, and rounded TTL. They do not uniquely identify every OS.
+- TTL is deliberately quantized, which removes some information but aligns
+  training and inference.
+- A source's evidence uniqueness rule means a later observation of the same
+  MAC/signal/source replaces the earlier raw payload for that signal.
+- The offline parser stops after 200,000 packet iterations.
+- The live capture filter includes TCP and DHCP UDP ports; it is not a full
+  protocol inventory.
+- HTTP parsing only examines visible raw payload text and does not decrypt TLS.
+- The active workflow requires permissions, a reachable target, an installed
+  nmap executable, and optionally RustScan. It is not passive.
+- The dashboard runs Flask with debug=True and binds only to loopback by
+  default. It is intended for local use, not production deployment.
+- The current project has no implemented test cases under tests/. The commands
+  above are the executable operational and validation checks.
+- Training currently writes to models/, while runtime resolution prefers the
+  legacy model/ path if that file exists. Artifact freshness should therefore
+  be checked before interpreting inference results.
+- The checked-in metrics and model are snapshots. Running training with changed
+  CSVs, dependency versions, or preprocessing will produce a new result.
+- resources/p0f.fp is optional and is not used by current packet processing.
+
+
+14. Quick Command Reference
+---------------------------
+
+Offline passive ingestion:
+
+    python main.py
+
+Dashboard:
+
+    python dashboard/app.py
+
+Passive live capture:
+
+    python src/scripts/live_capture.py --iface WiFi
+
+Train and export the classifier:
+
+    python src/model/train_model.py
+
+Validate against independent captured data:
+
+    python src/model/validate_model.py
+
+Standalone PCAP prediction:
+
+    python src/scripts/predict_pcap.py path/to/capture.pcap
+
+Active one-device probe:
+
+    python src/scripts/active_probe.py --mac AA:BB:CC:DD:EE:FF
+
+The working directory should be the project root, or the command should be
+adapted so that the project source paths and configured relative inputs resolve
+correctly. The Python environment must contain the pinned runtime/ML packages;
+nmap and, for the fast first stage, RustScan must also be installed separately.
+
+
+15. Réponses aux questions en suspens
+--------------------------------------
+
+Cette section répond aux questions soulevées pendant la présentation du
+projet. Chaque réponse distingue le comportement actuellement vérifiable du
+code des améliorations qui restent à décider.
+
+Q1 - Les CSV sont-ils fournis ou doivent-ils être téléchargés ?
+
+Ils sont fournis dans le dépôt actuel, sous resources/. Les fichiers présents
+sont local.csv, subnet1.csv, subnet2.csv, subnet3.csv et subnet4.csv. Le script
+de formation les découvre automatiquement avec le motif resources/*.csv. Il
+n'y a donc pas de téléchargement prévu par le code de formation. Les PCAP, en
+revanche, devraient se trouver dans pcaps/, mais ce répertoire n'est pas
+présent dans l'état actuel du dépôt.
+
+Q2 - Existe-t-il d'autres filtres que TCP_SYN_SIZE et TCP_WIN nuls ?
+
+Dans train_model.py, les deux suppressions explicites sont TCP_SYN_SIZE == 0
+et TCP_WIN == 0. Le script fusionne également ios dans macos, normalise le TTL
+et déduplique les lignes. Il ne filtre pas explicitement un protocole TCP,
+n'effectue pas de détection d'outliers, ne supprime pas explicitement les
+valeurs négatives ou manquantes, et n'applique pas de seuil statistique. Les
+colonnes réellement conservées pour le modèle sont SRC_PORT, TCP_SYN_SIZE,
+TCP_WIN, TCP_MSS et TTL. Il faut donc considérer la validité des valeurs
+restantes comme une hypothèse des données d'entrée, non comme une garantie
+fournie par le pipeline.
+
+Q3 - Que devient un TTL supérieur à 256 ?
+
+Il est ramené à 256. La fonction round_ttl() ne rejette pas les valeurs
+supérieures à 256. Elle applique la branche finale else, qui renvoie 256. Elles
+ne sont donc pas ignorées. Le code ne produit pas de statistique sur leur
+fréquence; la rareté doit être mesurée séparément dans les CSV ou les PCAP.
+
+Q4 - La déduplication de local.csv perd-elle des flux distincts ?
+
+Oui, c'est possible et c'est une limite réelle. local.csv ne contient pas les
+colonnes d'adresse IP ni de port destination attendues pour une clé de flux.
+Le fallback déduplique sur (SRC_PORT, TCP_SYN_SIZE, TCP_WIN, TCP_MSS, TTL,
+OS_LABEL). Deux flux réellement distincts qui possèdent exactement ce même
+tuple sont alors considérés comme des doublons et une seule ligne est
+conservée. Ce choix réduit le poids des répétitions, mais il peut perdre de
+l'information de fréquence et des contextes de flux distincts.
+
+Q5 - Quel est le format de ground_truth.json ?
+
+Il s'agit d'un objet JSON simple associant une adresse MAC à une étiquette OS,
+par exemple:
+
+    {
+      "4c:34:88:f2:c9:3e": "windows",
+      "ae:cc:c7:b6:8a:23": "android"
+    }
+
+Le fichier actuel contient sept associations. Les MAC y sont en minuscules et
+utilisent des deux-points comme séparateurs. validate_model.py normalise de
+toute façon les clés et les étiquettes en minuscules avant la comparaison.
+
+Q6 - Pourquoi p0f.fp est-il exigé alors qu'il n'est pas utilisé ?
+
+Dans l'état actuel du code, cette vérification est un vestige d'une conception
+antérieure ou d'une intégration p0f incomplète. main.py et src/scripts/main.py
+refusent de démarrer si resources/p0f.fp est absent, mais le parseur actuel ne
+charge pas ce fichier et n'exécute pas de moteur p0f. La conversion des options
+TCP produit seulement une signature textuelle. Aucune utilisation fonctionnelle
+de p0f.fp ne doit donc être revendiquée; il faudrait soit supprimer cette
+précondition, soit implémenter explicitement l'intégration p0f.
+
+Q7 - Que se passe-t-il avec HTTPS ?
+
+Le parseur ne déchiffre pas TLS et ne reconnaît que les User-Agent visibles
+dans un payload brut ressemblant à HTTP. Un User-Agent transporté dans HTTPS
+est donc ignoré par cette extraction. Le trafic HTTPS peut toutefois encore
+contribuer par ses paquets TCP SYN et leurs cinq caractéristiques ML. Les
+signaux applicatifs chiffrés ne sont pas exploités.
+
+Q8 - Pourquoi ne pas extraire davantage d'options DHCP ?
+
+Le code actuel extrait seulement l'adresse demandée, l'option 55, l'option 60
+et le hostname de l'option 12. Les options 15, 61, 81 et autres ne sont pas
+stockées ni utilisées pour le scoring. Elles pourraient être utiles, mais
+aucune règle de fusion ou de pondération n'existe pour elles.
+
+Q9 - La limite de 200 000 paquets est-elle paramétrable ?
+
+Non. Dans parse_pcap.py, la valeur 200000 est codée en dur dans la boucle et
+n'est pas exposée dans config.py ni comme argument CLI. Elle limite les
+itérations traitées et peut tronquer les gros PCAP. La capture live n'a pas
+cette limite; elle fonctionne jusqu'à son arrêt.
+
+Q10 - Le filtre live exclut-il volontairement ARP, ICMP et autres protocoles ?
+
+Le filtre effectif est "tcp or udp port 67 or udp port 68". Il exclut donc ARP,
+ICMP et les autres protocoles. Le code ne fournit pas de justification plus
+détaillée, mais le choix correspond au périmètre actuellement traité:
+fingerprints TCP, DHCP et HTTP. Les protocoles exclus ne peuvent pas fournir
+d'évidence dans cette capture.
+
+Q11 - Pourquoi écraser les observations au lieu de conserver l'historique ?
+
+La contrainte UNIQUE (mac_address, signal_type, source) et l'UPSERT remplacent
+le payload, la signature, la confiance et la date précédents. Ce choix limite
+la croissance de la base et conserve un résumé par type de signal et source,
+mais fait perdre l'historique temporel détaillé. Conserver tout l'historique
+nécessiterait une table append-only ou une nouvelle clé, avec une politique de
+rétention.
+
+Q12 - Que se passe-t-il lors d'une nouvelle analyse du même PCAP ?
+
+La source est identifiée par le nom de base du fichier. Elle est retrouvée et
+ses timestamps et compteurs sont mis à jour. Pour une même MAC, un même type
+de signal et cette même source, l'évidence est réécrite. Les compteurs peuvent
+donc augmenter alors que les lignes d'évidence restent remplacées. Il n'existe
+pas de run_id ni de versionnement automatique par analyse.
+
+Q13 - Le fallback Nmap après échec de RustScan est-il automatique ?
+
+Oui. Une absence de RustScan, un échec, une exception ou un timeout entraîne
+un retour vide, puis l'appel Nmap de fallback avec "-O -sV --osscan-guess"
+sans liste de ports restreinte. Le timeout du sous-processus RustScan est de
+90 secondes. Le code ne fixe pas de timeout équivalent pour Nmap; le fallback
+peut donc être long sur un hôte filtré ou non joignable.
+
+Q14 - Pourquoi exclure les ports 80 et 443 des indications de type ?
+
+Un service HTTP ou HTTPS est trop générique pour identifier de façon fiable un
+type d'appareil: ordinateur, caméra, routeur et serveur peuvent tous les
+exposer. Le code conserve les informations de service renvoyées par Nmap,
+mais n'utilise pas ces deux ports comme indice prédéfini de type. Des ports
+plus spécifiques reçoivent des indices heuristiques.
+
+Q15 - Que se passe-t-il si l'IP a changé ?
+
+La sonde utilise device.ip_address_current. Cette valeur est mise à jour
+lorsque de nouvelles preuves contenant une adresse IP non nulle sont
+observées. Si l'adresse a changé sans nouvelle capture, la sonde tente
+l'ancienne adresse; elle ne fait pas de découverte MAC-vers-IP automatique. Une
+IP absente provoque une erreur immédiate. La mise à jour automatique hors
+capture n'est pas implémentée.
+
+Q16 - Le polling de cinq secondes est-il paramétrable ?
+
+Non. Le délai est directement écrit dans index.html sous la forme
+setInterval(refreshAll, 5000). Il n'est pas lu depuis config.py ni exposé par
+une variable d'environnement ou une option Flask.
+
+Q17 - L'API des preuves possède-t-elle une pagination ou une limite ?
+
+Non. /api/sources/<source_name>/evidence renvoie toutes les lignes de la
+source, sans LIMIT, offset ou pagination. /api/activity constitue l'exception
+et limite la requête aux 50 éléments les plus récents. Une source volumineuse
+peut donc produire une réponse importante.
+
+Q18 - Le JSON des métriques est-il mis à jour après réentraînement ?
+
+Oui, lorsque train_model.py termine correctement: il écrit
+models/os_classifier_metrics.json. Le dashboard relit ce fichier à chaque appel
+de /api/model-metrics, donc les nouvelles métriques sont visibles au prochain
+chargement. Le dashboard ne lance pas lui-même l'entraînement. Si celui-ci
+échoue, l'ancien JSON reste en place.
+
+Q19 - Comment une MAC présente dans plusieurs sources est-elle gérée ?
+
+La MAC reste une seule ligne dans devices, car elle est la clé primaire. Les
+preuves restent séparées par source. Lorsqu'une source est traitée, la
+recomposition peut mettre device.source à cette source; cette valeur représente
+donc le dernier contexte d'agrégation, pas l'ensemble des sources historiques.
+Le dashboard affiche une seule ligne Device. Les preuves par source restent
+consultables via les routes dédiées.
+
+Q20 - Pourquoi pytest est-il présent sans tests ?
+
+Le répertoire tests/ existe, mais aucun cas de test n'est implémenté dans
+l'état inspecté. pytest est déclaré dans requirements.txt, mais il n'existe
+pas de suite de tests ni de plan exécutable pour une version ultérieure. Cette
+dépendance doit donc être considérée comme une préparation d'environnement ou
+un reste de développement, pas comme une garantie de couverture.
+
+Q21 - La priorité au modèle legacy est-elle délibérée ?
+
+La priorité est explicitement codée: model/os_classifier_pair.joblib est
+recherché avant models/. Le dépôt ne contient toutefois pas de commentaire
+établissant l'intention historique; on peut l'interpréter comme une
+compatibilité, mais ce n'est pas prouvé. En pratique, un ancien modèle dans
+model/ peut être chargé après un réentraînement qui a écrit models/. C'est un
+risque de reproductibilité.
+
+Q22 - Le fichier requirements sans extension est-il utilisé ?
+
+Il n'est référencé par aucun script d'exécution et aucun mécanisme ne le
+sélectionne automatiquement. Il peut servir manuellement à préparer un
+environnement minimal orienté capture, mais cette utilisation n'est pas
+implémentée ni vérifiée. L'entraînement ML et le dashboard complet exigent les
+dépendances complémentaires de requirements.txt ou pyproject.toml.
+
+Q23 - Les logs PARSE_DEBUG sont-ils volumineux ?
+
+PARSE_DEBUG vaut True. Le parseur hors ligne affiche surtout les avertissements
+de chargement et le résumé final; le live capture peut afficher une ligne par
+évidence TCP, HTTP ou DHCP. Pour une longue capture live, la sortie console
+peut donc devenir volumineuse. Les messages ne sont pas automatiquement
+écrits dans un fichier par ces chemins: LOGS_DIR est créé, mais aucun logger
+structuré avec rotation n'est installé. En production, il serait préférable
+de désactiver PARSE_DEBUG ou d'ajouter des niveaux de journalisation.

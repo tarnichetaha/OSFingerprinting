@@ -1,9 +1,11 @@
 import os
 import glob
+import json
 import time
 import joblib
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from typing import List, Tuple
 
 from sklearn.model_selection import train_test_split
@@ -11,11 +13,15 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.class_weight import compute_sample_weight
 from sklearn.metrics import classification_report, confusion_matrix, precision_recall_fscore_support
 import xgboost as xgb
-from config import MODEL_DIR, RESOURCES_DIR
-
-# 5 common features available in both training data & single SYN packet
-FEATURE_COLUMNS = ["SRC_PORT", "TCP_SYN_SIZE", "TCP_WIN", "TCP_MSS", "TTL"]
-TARGET_COLUMN = "OS_LABEL"
+from config import (
+    FEATURE_COLUMNS,
+    ML_RANDOM_STATE,
+    ML_TEST_SIZE,
+    MODEL_DIR,
+    RESOURCES_DIR,
+    TARGET_COLUMN,
+    XGB_CLASSIFIER_PARAMS,
+)
 
 
 def round_ttl(ttl: int) -> int:
@@ -55,7 +61,6 @@ def load_and_preprocess_data(data_dir: str = str(RESOURCES_DIR)) -> pd.DataFrame
 
     for filepath in csv_files:
         filename = os.path.basename(filepath)
-        # Load only necessary columns to optimize memory usage
         df_head = pd.read_csv(filepath, nrows=2)
         available_cols = df_head.columns.tolist()
         
@@ -66,27 +71,22 @@ def load_and_preprocess_data(data_dir: str = str(RESOURCES_DIR)) -> pd.DataFrame
         total_raw_rows += raw_count
         print(f"[{filename}] Loaded {raw_count:,} raw rows")
         
-        # Track initial file row count
         current_count = raw_count
         
-        # Step 1: Drop rows where TCP_SYN_SIZE == 0
         df = df[df["TCP_SYN_SIZE"] != 0]
         step1_count = len(df)
         print(f"  Step 1 (Drop TCP_SYN_SIZE==0): {current_count:,} -> {step1_count:,} (Dropped {current_count - step1_count:,})")
         current_count = step1_count
 
-        # Step 2: Drop rows where TCP_WIN == 0
         df = df[df["TCP_WIN"] != 0]
         step2_count = len(df)
         print(f"  Step 2 (Drop TCP_WIN==0): {current_count:,} -> {step2_count:,} (Dropped {current_count - step2_count:,})")
         current_count = step2_count
 
-        # Step 3: Merge 'ios' label into 'macos'
         ios_count = (df[TARGET_COLUMN] == "ios").sum()
         df[TARGET_COLUMN] = df[TARGET_COLUMN].replace({"ios": "macos"})
         print(f"  Step 3 (Merge 'ios' -> 'macos'): Merged {ios_count:,} 'ios' rows into 'macos'")
 
-        # Step 4: Confirm/round TTL values
         unrounded_mask = ~df["TTL"].isin([32, 64, 128, 256])
         unrounded_count = unrounded_mask.sum()
         if unrounded_count > 0:
@@ -95,13 +95,11 @@ def load_and_preprocess_data(data_dir: str = str(RESOURCES_DIR)) -> pd.DataFrame
         else:
             print(f"  Step 4 (TTL Check): Confirmed all TTL values are power-of-two rounded.")
 
-        # Step 6: Deduplicate on (SRC_IP, SRC_PORT, DST_IP, DST_PORT) where possible, or feature tuple
         flow_key_cols = [c for c in ["SRC_IP", "SRC_PORT", "DST_IP", "DST_PORT"] if c in df.columns]
         if len(flow_key_cols) >= 2:
             df = df.drop_duplicates(subset=flow_key_cols)
             print(f"  Step 6 (Flow Key Dedup on {flow_key_cols}): {current_count:,} -> {len(df):,} (Dropped {current_count - len(df):,})")
         else:
-            # Fallback for datasets without DST_PORT or IP (e.g. local.csv): deduplicate on exact feature + target rows
             dedup_cols = FEATURE_COLUMNS + [TARGET_COLUMN]
             df = df.drop_duplicates(subset=dedup_cols)
             print(f"  Step 6 (Feature Row Dedup on {dedup_cols}): {current_count:,} -> {len(df):,} (Dropped {current_count - len(df):,})")
@@ -122,6 +120,40 @@ def load_and_preprocess_data(data_dir: str = str(RESOURCES_DIR)) -> pd.DataFrame
     return merged_df
 
 
+def save_training_graphs(training_history: dict) -> None:
+    epochs = range(1, len(training_history["train_mlogloss"]) + 1)
+
+    loss_path = MODEL_DIR / "training_loss.png"
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, training_history["train_mlogloss"], label="Train loss")
+    plt.plot(epochs, training_history["test_mlogloss"], label="Test loss")
+    plt.xlabel("Boosting round")
+    plt.ylabel("Multiclass log loss")
+    plt.title("Training and Test Loss")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(loss_path, dpi=150)
+    plt.close()
+
+    accuracy_path = MODEL_DIR / "training_accuracy.png"
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, training_history["train_accuracy"], label="Train accuracy")
+    plt.plot(epochs, training_history["test_accuracy"], label="Test accuracy")
+    plt.xlabel("Boosting round")
+    plt.ylabel("Accuracy")
+    plt.title("Training and Test Accuracy")
+    plt.ylim(0, 1.05)
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(accuracy_path, dpi=150)
+    plt.close()
+
+    print(f"Saved training loss graph to: {loss_path}")
+    print(f"Saved training accuracy graph to: {accuracy_path}")
+
+
 def train_and_evaluate():
     start_time = time.time()
     df = load_and_preprocess_data()
@@ -136,19 +168,16 @@ def train_and_evaluate():
     for cls_name, count in class_dist.items():
         print(f"  Class '{cls_name}': {count:,} samples ({count / len(df) * 100:.2f}%)")
 
-    # Encode string labels with LabelEncoder
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(y_raw)
     classes = label_encoder.classes_
     print(f"\nLabelEncoder classes mapping: {dict(enumerate(classes))}")
 
-    # Stratified Train / Test split (Stage 1 validation split)
     print("\nPerforming Stratified 80/20 Train/Test split...")
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y_encoded, test_size=0.20, random_state=42, stratify=y_encoded
+        X, y_encoded, test_size=ML_TEST_SIZE, random_state=ML_RANDOM_STATE, stratify=y_encoded
     )
 
-    # Compute balanced sample weights for XGBoost fitting
     sample_weights = compute_sample_weight("balanced", y_train)
 
     print("\nClass distribution in Training Set:")
@@ -157,24 +186,29 @@ def train_and_evaluate():
         print(f"  Class '{cls_name}': {count:,} samples ({count / len(y_train) * 100:.2f}%)")
 
     print("\nTraining XGBoost Classifier (objective='multi:softprob')...")
-    model = xgb.XGBClassifier(
-        objective="multi:softprob",
-        eval_metric="mlogloss",
-        n_estimators=150,
-        max_depth=6,
-        learning_rate=0.1,
-        random_state=42,
-        n_jobs=-1
-    )
+    model = xgb.XGBClassifier(**XGB_CLASSIFIER_PARAMS)
     
-    model.fit(X_train, y_train, sample_weight=sample_weights)
+    model.fit(
+        X_train, y_train,
+        sample_weight=sample_weights,
+        eval_set=[(X_train, y_train), (X_test, y_test)],
+        verbose=False,
+    )
 
-    # Log booster feature names
+    evals_result = model.evals_result()
+    training_history = {
+        "train_mlogloss": evals_result["validation_0"]["mlogloss"],
+        "test_mlogloss": evals_result["validation_1"]["mlogloss"],
+        "train_accuracy": [1 - e for e in evals_result["validation_0"]["merror"]],
+        "test_accuracy": [1 - e for e in evals_result["validation_1"]["merror"]],
+    }
+    MODEL_DIR.mkdir(exist_ok=True)
+    save_training_graphs(training_history)
+
     booster_feature_names = model.get_booster().feature_names
     print(f"\nLogged Booster Feature Names: {booster_feature_names}")
     assert booster_feature_names == FEATURE_COLUMNS, f"Feature mismatch! Model expects {booster_feature_names}, configured {FEATURE_COLUMNS}"
 
-    # Stage 1 Evaluation on Held-Out Test Split
     print("\n" + "=" * 80)
     print("STAGE 1 EVALUATION (HELD-OUT TEST SPLIT)")
     print("=" * 80)
@@ -200,9 +234,24 @@ def train_and_evaluate():
     cm_df = pd.DataFrame(cm, index=[f"True_{c}" for c in classes], columns=[f"Pred_{c}" for c in classes])
     print(cm_df.to_string())
 
-    # Save artifact pair (model + LabelEncoder)
-    MODEL_DIR.mkdir(exist_ok=True)
     artifact_path = MODEL_DIR / "os_classifier_pair.joblib"
+
+    metrics = {
+        "macro_precision": precision,
+        "macro_recall": recall,
+        "macro_f1": f1,
+        "raw_accuracy": raw_acc,
+        "classification_report": classification_report(y_test_labels, y_pred_labels, digits=4, output_dict=True),
+        "confusion_matrix": {row: {col: int(v) for col, v in cols.items()} for row, cols in cm_df.to_dict(orient="index").items()},
+        "class_distribution": {str(k): int(v) for k, v in class_dist.items()},
+        "train_size": len(X_train),
+        "test_size": len(X_test),
+        "training_history": training_history,
+    }
+    metrics_path = MODEL_DIR / "os_classifier_metrics.json"
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2)
+    print(f"Saved evaluation metrics to: {metrics_path}")
     
     artifact = {
         "model": model,
